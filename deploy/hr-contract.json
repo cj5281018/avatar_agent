@@ -1,0 +1,37 @@
+{
+  "contractVersion": "1.1.0",
+  "manifestSha256": "9db3b460f0d3ef6e2da2a78236c26a88aa22dfc5938f204f69e17c3d8fe9e091",
+  "allowedActions": [
+    "offer.get",
+    "offer.preview",
+    "offer.record_response",
+    "offer.record_sent",
+    "offer.save_draft",
+    "onboarding.cancel",
+    "onboarding.close",
+    "onboarding.get",
+    "onboarding.list",
+    "onboarding.record_arrival",
+    "onboarding.reschedule",
+    "onboarding.update_task",
+    "recruitment.advance",
+    "recruitment.jd",
+    "recruitment.list",
+    "recruitment.weekly"
+  ],
+  "leaveActions": {
+    "list_my_requests": "查询本人的请假申请与进度",
+    "list_pending_approvals": "查询分配给本人的待审批请假单",
+    "get_approvers": "查询可选的请假审批人",
+    "request_leave": "准备请假申请，使用桌面端确认卡提交",
+    "review_leave": "准备审批已有假单，使用桌面端确认卡提交"
+  },
+  "compatibleActions": [
+    {
+      "contractVersion": "1.0.0",
+      "manifestSha256": "1ec3c4f71b085c2f98ffb47722a87953fddb34807dead6d725ba07d340a9db3f",
+      "action": "recruitment.advance",
+      "actionSha256": "394f0fa04928b1f311bdd0e3f60a93033f8972479b54ad20ce93e0b564d5adbf"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!requirements.txt
+!avatar_contract/
+!avatar_contract/*.py
+!deploy/hr-contract.json
+!avatar_service/
+!avatar_service/*.py
+!hr_service/
+!hr_service/*.py
+!deploy/
+!deploy/avatar-hermes
+!deploy/pair_hr.py
+
+!hr_service/public/**

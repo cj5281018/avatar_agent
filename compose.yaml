@@ -1,0 +1,60 @@
+name: avatar-pilot
+services:
+  avatar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: avatar
+    init: true
+    restart: unless-stopped
+    ports:
+
+      - "127.0.0.1:${AVATAR_HOST_PORT:-18788}:8788"
+
+    environment:
+      PY_AVATAR_DATA_DIR: /var/lib/avatar
+      PY_AVATAR_HERMES_HOME_ROOT: /var/lib/avatar/hermes
+      PY_AVATAR_HERMES_BIN: /usr/local/bin/avatar-hermes
+      PY_AVATAR_PUBLIC_URL: http://avatar:8788
+      PY_AVATAR_HR_CONTRACT_FILE: /app/deploy/hr-contract.json
+      PY_AVATAR_HR_URL: http://hr:8891
+      PY_AVATAR_MODEL: ${PY_AVATAR_MODEL:-}
+      PY_AVATAR_MODEL_PROVIDER: ${PY_AVATAR_MODEL_PROVIDER:-}
+      PY_AVATAR_MODEL_BASE_URL: ${PY_AVATAR_MODEL_BASE_URL:-}
+      AVATAR_INTERNAL_LLM_API_KEY: ${AVATAR_INTERNAL_LLM_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - avatar-data:/var/lib/avatar
+      - ${AVATAR_HR_CONTRACT_PATH:-./deploy/hr-contract.json}:/app/deploy/hr-contract.json:ro
+    depends_on:
+      hr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/opt/avatar-venv/bin/python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8788/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  hr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: hr
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${HR_HOST_PORT:-18891}:8891"
+    environment:
+      HR_DATA_DIR: /var/lib/hr
+      HR_RECRUITMENT_DEMO: ${HR_RECRUITMENT_DEMO:-0}
+      HR_AVATAR_BASE_URL: http://avatar:8788
+      HR_PUBLIC_URL: http://hr:8891
+    volumes:
+      - hr-data:/var/lib/hr
+    healthcheck:
+      test: ["CMD", "/opt/avatar-venv/bin/python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8891/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+volumes:
+  avatar-data:
+  hr-data:
