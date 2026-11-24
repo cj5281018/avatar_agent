@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Sheet } from '$lib/components/ui/sheet'
+    import * as Sheet from '$lib/components/ui/sheet'
     import TraceTimeline from './trace-timeline.svelte'
 
     type RunSummary = {

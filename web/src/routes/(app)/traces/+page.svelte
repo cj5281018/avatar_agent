@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte'
-    import { Sheet } from '$lib/components/ui/sheet'
+    import * as Sheet from '$lib/components/ui/sheet'
     import TraceTimeline from '$lib/components/trace-timeline.svelte'
 
     type RunRow = {
