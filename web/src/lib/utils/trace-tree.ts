@@ -101,6 +101,9 @@ export function buildTraceTree(events: TraceEventInput[]): SpanNode[] {
               : 'ok'
 
         const details = [
+            detail('部门', text(payload.departmentName) || text(payload.department)),
+            detail('动作', text(payload.action)),
+            detail('插件版本', text(payload.pluginVersion)),
             detail('模型', payload.model),
             detail('工具名', tool),
             detail('本轮第几次模型调用', callIndex),

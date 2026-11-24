@@ -82,7 +82,7 @@ async def multi_draft() -> dict:
         chat_id=chat_id, user_id=user_id, user_message_id=None, model_name="deepseek-flash"
     )
     assert run is not None
-    model_span, d1, d2, decoy = new_id(), new_id(), new_id(), new_id()
+    model_span, d1, d2, d3, decoy = new_id(), new_id(), new_id(), new_id(), new_id()
     await _append(writer, run.run_id, "run.started", {"model": "fixture"}, run.run_id)
     await _append(writer, run.run_id, "model.started", {"model": "deepseek-flash", "callIndex": 1}, model_span)
     await _append(writer, run.run_id, "model.completed", {"model": "deepseek-flash", "durationMs": 10, "callIndex": 1}, model_span)
@@ -95,6 +95,13 @@ async def multi_draft() -> dict:
         writer, run.run_id, "tool.completed",
         {"tool": "hr_preview_leave", "kind": "action", "status": "ok", "durationMs": 6, "operationId": drafts[1]},
         d2, model_span,
+    )
+    # A second drafting step for the first business record: two spans, one
+    # operation, both must stay reachable.
+    await _append(
+        writer, run.run_id, "tool.completed",
+        {"tool": "hr_preview_leave", "kind": "action", "status": "ok", "durationMs": 4, "operationId": drafts[0]},
+        d3, model_span,
     )
     # A later, non-draft tool that also happens to return an operation id must
     # not become the business association.
@@ -113,7 +120,7 @@ async def multi_draft() -> dict:
         "chatId": chat_id,
         "runId": run.run_id,
         "draftOperationIds": drafts,
-        "draftSpanIds": [d1, d2],
+        "draftSpanIds": [d1, d2, d3],
         "decoySpanId": decoy,
         "confirmedLeaveId": confirmed.get("leaveId"),
         "secondDraftStatus": (
@@ -138,6 +145,51 @@ async def running_create() -> dict:
     await _append(writer, run.run_id, "run.started", {"model": "running-fixture"}, run.run_id)
     await _append(writer, run.run_id, "model.started", {"model": "deepseek-flash", "callIndex": 1}, model_span)
     return {"chatId": chat_id, "runId": run.run_id, "modelSpanId": model_span}
+
+
+async def many_drafts() -> dict:
+    """Seven drafts in one run, to prove every drafting step is reachable."""
+    pool = await get_db_pool()
+    user_id, chat_id = await _bob_context(pool)
+    seal = os.environ.get("AGENT_TRACE_SEAL_KEY", "").strip()
+    writer = TraceWriter(pool, seal.encode() if seal else None)
+    drafts = []
+    for day in range(1, 8):
+        item = await _gateway_post(
+            "/internal/tools/call",
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "name": "hr_preview_leave",
+                "arguments": {
+                    "startDate": f"2027-04-0{day}",
+                    "endDate": f"2027-04-0{day}",
+                    "leaveType": "annual",
+                    "reason": "many drafts fixture",
+                },
+            },
+        )
+        drafts.append(item["operationId"])
+    run = await writer.start_run(
+        chat_id=chat_id, user_id=user_id, user_message_id=None, model_name="many-drafts-fixture"
+    )
+    assert run is not None
+    model_span = new_id()
+    await _append(writer, run.run_id, "run.started", {"model": "many-drafts-fixture"}, run.run_id)
+    await _append(writer, run.run_id, "model.started", {"model": "deepseek-flash", "callIndex": 1}, model_span)
+    await _append(writer, run.run_id, "model.completed", {"model": "deepseek-flash", "durationMs": 10, "callIndex": 1}, model_span)
+    spans = []
+    for index, operation in enumerate(drafts):
+        span = new_id()
+        spans.append(span)
+        await _append(
+            writer, run.run_id, "tool.completed",
+            {"tool": "hr_preview_leave", "kind": "action", "status": "ok", "durationMs": 1, "operationId": operation},
+            span, model_span,
+        )
+    await _append(writer, run.run_id, "run.finished", {"status": "completed"}, run.run_id)
+    await writer.finish(run_id=run.run_id, status="completed", capture_status="ok")
+    return {"chatId": chat_id, "runId": run.run_id, "operationIds": drafts, "spanIds": spans}
 
 
 async def stale_create() -> dict:
@@ -359,6 +411,8 @@ def main() -> None:
         result = asyncio.run(multi_draft())
     elif command == "running-create":
         result = asyncio.run(running_create())
+    elif command == "many-drafts":
+        result = asyncio.run(many_drafts())
     elif command == "stale-create":
         result = asyncio.run(stale_create())
     elif command in ("stale-finish", "running-finish"):

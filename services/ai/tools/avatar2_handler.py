@@ -37,9 +37,11 @@ class Avatar2ToolHandler:
                 return None
             reply.raise_for_status()
             for tool in reply.json()["tools"]:
+                metadata = tool.get("x-avatar2") if isinstance(tool, dict) else None
                 handler.tools[tool["name"]] = {
                     "name": tool["name"], "description": tool["description"],
                     "input_schema": tool["inputSchema"],
+                    "trace": metadata if isinstance(metadata, dict) else {},
                 }
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             logger.warning("Avatar2 tool discovery failed")
@@ -51,6 +53,16 @@ class Avatar2ToolHandler:
 
     def can_handle(self, name):
         return name in self.tools
+
+    def trace_metadata(self, name):
+        tool = self.tools.get(name) or {}
+        meta = tool.get("trace") or {}
+        allowed = {}
+        for key in ("department", "departmentName", "action", "pluginVersion"):
+            value = meta.get(key)
+            if isinstance(value, str) and len(value) <= 80:
+                allowed[key] = value
+        return allowed
 
     def requires_approval(self, name):
         return name not in {"hr_list_my_requests", "hr_preview_leave"}

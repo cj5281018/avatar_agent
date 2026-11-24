@@ -225,7 +225,7 @@
         businessController = controller
         business = null
         void fetchBusiness(controller)
-        return () => controller.abort()
+        return () => businessController?.abort()
     })
 
     function seconds(ms: number | null): string {

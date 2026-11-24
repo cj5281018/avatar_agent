@@ -108,17 +108,21 @@ async def _inspect(raw: str, state: _TapState) -> None:
     data_text = sse_event_data(raw)
 
     if kind in _NON_TERMINAL_FAILURES:
+        # The frame itself is known to be an error, so the turn fails even when
+        # its payload cannot be parsed; the capture is degraded at the same time
+        # instead of hiding one of the two facts.
+        state.stream_error = "model_stream_error"
         if data_text:
             try:
                 payload = json.loads(data_text)
                 if not isinstance(payload, dict):
                     raise TapFailure("malformed_error")
             except ValueError as exc:
+                await emit("run.error", {"reasonCode": "model_stream_error"})
                 raise TapFailure("malformed_error") from exc
         await _close_model_span(state, status="error")
         # The provider's raw message is not stored: it can echo upstream
         # response bodies. The category plus the user-visible label is enough.
-        state.stream_error = "model_stream_error"
         await emit("run.error", {"reasonCode": "model_stream_error"})
         return
 

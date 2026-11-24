@@ -199,13 +199,21 @@ function payloadOf(body, type, predicate = () => true) {
         evidence.business = { leaveId, operationId, approved: true, sealUnchanged: true }
 
         // ---------- 5: tool failure ----------
-        const failedChat = await newChat(bob)
-        await turn(
-            bob,
-            failedChat,
-            '请调用 hr_preview_leave 工具，参数 startDate=2026-12-16，endDate=2026-12-16，leaveType=not_a_leave_type，reason=test。只调用一次，不要修改参数。',
-        )
-        const failedRuns = await runs(bob, failedChat)
+        // The model occasionally answers without calling the tool. Retry the
+        // same controlled request a few times before treating it as a failure
+        // of the product rather than of model compliance.
+        let failedChat
+        let failedRuns
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            failedChat = await newChat(bob)
+            await turn(
+                bob,
+                failedChat,
+                '必须调用 hr_preview_leave 工具，参数 startDate=2026-12-16，endDate=2026-12-16，leaveType=not_a_leave_type，reason=test。只调用一次，不要修改参数，不要解释。',
+            )
+            failedRuns = await runs(bob, failedChat)
+            if (failedRuns[0].toolError) break
+        }
         assert.equal(failedRuns[0].toolError, true, 'list should flag a tool failure')
         const failedDetail = await detail(bob, failedChat, failedRuns[0].runId)
         const failedEvent = payloadOf(failedDetail.body, 'tool.failed')

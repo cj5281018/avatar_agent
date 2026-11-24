@@ -22,9 +22,9 @@ async function login(page, email, password) {
     const chatId = process.env.CHAT_ID
     const runId = process.env.RUN_ID
     const [draft1, draft2] = (process.env.OP_IDS || '').split(',')
-    const [span1, span2] = (process.env.SPAN_IDS || '').split(',')
+    const [span1, span2, span3] = (process.env.SPAN_IDS || '').split(',')
     const decoySpan = process.env.DECOY_SPAN
-    assert(chatId && runId && draft1 && draft2 && span1 && span2 && decoySpan, 'fixture ids required')
+    assert(chatId && runId && draft1 && draft2 && span1 && span2 && span3 && decoySpan, 'fixture ids required')
 
     const browser = await chromium.launch({ channel: 'msedge', headless: true })
     try {
@@ -34,22 +34,22 @@ async function login(page, email, password) {
         const all = await page.request.get(`${base}/api/chat/${chatId}/runs/${runId}/business`)
         assert(all.ok(), 'business ' + all.status())
         const body = await all.json()
-        assert.equal(body.drafts.length, 2, 'expected exactly two drafts, saw ' + body.drafts.length)
-        const first = body.drafts.find((draft) => draft.operationId === draft1)
-        const second = body.drafts.find((draft) => draft.operationId === draft2)
-        assert(first && second, 'draft ids not associated')
-        assert.equal(first.spanId, span1)
-        assert.equal(second.spanId, span2)
-        assert.equal(first.leaveId, process.env.LEAVE_ID, 'confirmed draft should expose its leave id')
-        assert(second.leaveId === null && second.cardStatus === 'pending', 'second draft must stay pending')
+        assert.equal(body.drafts.length, 3, 'expected three drafting steps, saw ' + body.drafts.length)
+        const bySpan = new Map(body.drafts.map((draft) => [draft.spanId, draft]))
+        assert(bySpan.get(span1)?.operationId === draft1, 'first span association')
+        assert(bySpan.get(span2)?.operationId === draft2, 'second span association')
+        assert(bySpan.get(span3)?.operationId === draft1, 'third span must reuse the first operation')
+        assert.equal(bySpan.get(span1).leaveId, process.env.LEAVE_ID)
+        assert.equal(bySpan.get(span3).leaveId, process.env.LEAVE_ID, 'same operation resolves to the same leave')
+        assert(bySpan.get(span2).leaveId === null && bySpan.get(span2).cardStatus === 'pending')
         assert(!body.drafts.some((draft) => draft.operationId.includes('DECOY')), 'decoy must not be associated')
 
         const one = await page.request.get(
-            `${base}/api/chat/${chatId}/runs/${runId}/business?spanId=${span2}`,
+            `${base}/api/chat/${chatId}/runs/${runId}/business?spanId=${span3}`,
         )
         const oneBody = await one.json()
         assert.equal(oneBody.drafts.length, 1, 'span filter should return one draft')
-        assert.equal(oneBody.drafts[0].operationId, draft2)
+        assert.equal(oneBody.drafts[0].operationId, draft1)
 
         const decoy = await page.request.get(
             `${base}/api/chat/${chatId}/runs/${runId}/business?spanId=${decoySpan}`,
@@ -75,8 +75,22 @@ async function login(page, email, password) {
 
         console.log(
             'PASS business drafts:',
-            body.drafts.map((draft) => `${draft.operationId}:${draft.leaveId ?? 'pending'}`).join(' '),
+            body.drafts.map((draft) => `${draft.spanId.slice(0, 6)}→${draft.operationId}:${draft.leaveId ?? 'pending'}`).join(' '),
         )
+
+        if (process.env.MANY_CHAT && process.env.MANY_RUN) {
+            const many = await page.request.get(
+                `${base}/api/chat/${process.env.MANY_CHAT}/runs/${process.env.MANY_RUN}/business`,
+            )
+            const manyBody = await many.json()
+            assert(manyBody.drafts.length >= 7, 'seven drafts must all be reachable')
+            await page.goto(base + '/traces')
+            await page.getByTestId(`trace-open-${process.env.MANY_RUN}`).click()
+            await page.getByTestId('trace-business').getByTestId('trace-business-draft').first().waitFor({ timeout: 20000 })
+            const rendered = await page.getByTestId('trace-business-draft').count()
+            assert(rendered >= 7, 'panel should render every drafting step, saw ' + rendered)
+            console.log('PASS seven drafts reachable:', rendered)
+        }
     } finally {
         await browser.close()
     }

@@ -161,6 +161,12 @@ class TracedToolHandler:
             "durationMs": int((time.monotonic() - started) * 1000),
             "status": "error" if getattr(result, "is_error", False) else "ok",
         }
+        # Department/action/plugin version come from the tool catalog, so a
+        # trace can say which department produced a step without the model
+        # supplying anything.
+        metadata = getattr(self._inner, "trace_metadata", None)
+        if callable(metadata):
+            payload.update(metadata(tool_name))
         # The query itself is what the employee typed in this chat; keep it short
         # so the step can be identified without storing the whole request.
         if tool_name in RETRIEVAL_TOOLS:

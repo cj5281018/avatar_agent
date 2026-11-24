@@ -131,13 +131,15 @@ export async function listDraftSteps(runId: string): Promise<DraftStep[]> {
           AND payload ? 'operationId'
         ORDER BY seq ASC
     `)
+    // Keyed by span, not by operation: two drafting steps may legitimately
+    // resolve to the same business record and must both stay reachable.
     const seen = new Set<string>()
     const drafts: DraftStep[] = []
     for (const row of rows as Record<string, unknown>[]) {
-        const operationId = row.operation_id as string
-        if (seen.has(operationId)) continue
-        seen.add(operationId)
-        drafts.push({ spanId: row.span_id as string, operationId, seq: Number(row.seq) })
+        const spanId = row.span_id as string
+        if (seen.has(spanId)) continue
+        seen.add(spanId)
+        drafts.push({ spanId, operationId: row.operation_id as string, seq: Number(row.seq) })
     }
     return drafts
 }

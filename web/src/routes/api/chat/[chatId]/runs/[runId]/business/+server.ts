@@ -15,7 +15,7 @@ type DraftStatus = {
     hrStatus?: string | null
 }
 
-const MAX_DRAFTS = 5
+const MAX_DRAFTS = 20
 
 /**
  * Links drafting steps to the business records they produced.

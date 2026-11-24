@@ -315,6 +315,13 @@ class TapTest(unittest.IsolatedAsyncioTestCase):
         completed = [item for item in self.writer.appended if item["type"] == "model.completed"]
         self.assertNotIn("firstTextMs", completed[0]["payload"])
 
+    async def test_corrupt_error_frame_fails_and_degrades(self):
+        state = tee._TapState()
+        raw = "event: stream_error" + chr(10) + "data: {broken" + chr(10) + chr(10)
+        with self.assertRaises(tee.TapFailure):
+            await tee._inspect(raw, state)
+        self.assertEqual(state.stream_error, "model_stream_error")
+
     async def test_capture_failure_marks_once_and_persists(self):
         await capture_failure(self.run, "malformed_message")
         self.assertTrue(self.run.degraded)
