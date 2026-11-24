@@ -76,6 +76,7 @@
     import UserInput from '$lib/components/user-input.svelte'
     import UploadChip from '$lib/components/upload-chip.svelte'
     import * as Alert from '$lib/components/ui/alert'
+    import TraceEntry from '$lib/components/trace-entry.svelte'
     import type { Attachment } from 'svelte/attachments'
     import * as HoverCard from '$lib/components/ui/hover-card'
     import { copyTextToClipboard } from '$lib/utils'
@@ -566,6 +567,43 @@
 
     let processedMessages = $derived(processMessages(chatMessages))
     let lastUserMessageIndex = $derived(processedMessages.findLastIndex((m) => m.role === 'user'))
+
+    // Per-turn execution traces, keyed by the user message that started the
+    // turn. The latest attempt wins; older attempts stay available in the
+    // trace centre.
+    type TraceRunSummary = {
+        runId: string
+        status: string
+        steps: number
+        durationMs: number | null
+    }
+    let traceRuns = $state<Record<string, TraceRunSummary>>({})
+    let traceRefreshKey = $state('')
+
+    async function loadTraces() {
+        try {
+            const response = await fetch(`/api/chat/${data.chat.id}/runs`)
+            if (!response.ok) return
+            const body = (await response.json()) as {
+                runs: (TraceRunSummary & { userMessageId: string | null })[]
+            }
+            const next: Record<string, TraceRunSummary> = {}
+            for (const run of body.runs) {
+                if (run.userMessageId && !next[run.userMessageId]) next[run.userMessageId] = run
+            }
+            traceRuns = next
+        } catch {
+            // Tracing is auxiliary: a failed load must not affect the chat.
+        }
+    }
+
+    $effect(() => {
+        // Reload when the message list changes or a stream finishes.
+        const key = `${isStreaming}:${processedMessages.length}:${processedMessages.at(-1)?.origMessageId ?? ''}`
+        if (key === traceRefreshKey) return
+        traceRefreshKey = key
+        void loadTraces()
+    })
 
     // Artifact side-pane state. Panel-mode artifacts (everything that is not an
     // image) are collected across the conversation; chips in the message rows
@@ -2950,12 +2988,14 @@
                                 class="group mt-8 flex w-full min-w-0 flex-col items-end"
                                 bind:this={lastUserMessageRef}>
                                 {@render userMessageContent(message)}
+                                <TraceEntry chatId={data.chat.id} run={traceRuns[message.origMessageId]} />
                             </div>
                         {:else}
                             <div
                                 data-testid={`chat-message-${message.origMessageId}`}
                                 class="group mt-8 flex w-full min-w-0 flex-col items-end">
                                 {@render userMessageContent(message)}
+                                <TraceEntry chatId={data.chat.id} run={traceRuns[message.origMessageId]} />
                             </div>
                         {/if}
                     {:else if message.role === 'assistant'}

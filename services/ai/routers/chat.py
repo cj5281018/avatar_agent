@@ -128,7 +128,9 @@ from tools.sandbox_handler import SandboxToolHandler
 from tools.search_handler import fetch_operator_values
 from tools.skill_handler import SkillHandler
 from tools.avatar2_handler import Avatar2ToolHandler
+from tools.traced_handler import TracedToolHandler
 from tools.turn_builder import build_turn_tools
+from tracing.tee import traced_turn
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -353,6 +355,15 @@ async def _noop_on_load(_: set[str]) -> None:
     return None
 
 
+def _last_user_message_id(chat_messages: list) -> str | None:
+    """本轮问答所回答的用户消息，用于把执行记录挂回那条提问。"""
+    for entry in reversed(chat_messages):
+        message = getattr(entry, "message", None)
+        if isinstance(message, dict) and message.get("role") == "user":
+            return entry.id
+    return None
+
+
 async def _build_registry(
     request: Request,
     chat: Chat,
@@ -372,8 +383,10 @@ async def _build_registry(
 
     avatar2_handler = await Avatar2ToolHandler.discover(chat.user_id)
     if avatar2_handler is not None:
-        registry.register(avatar2_handler)
-        always_on_handlers.append(avatar2_handler)
+        # 记录工具调用起点与耗时；注册表与主循环不感知追踪。
+        traced_avatar2_handler = TracedToolHandler(avatar2_handler)
+        registry.register(traced_avatar2_handler)
+        always_on_handlers.append(traced_avatar2_handler)
 
     fetched_sources = await _fetch_sources_from_connector_manager()
     sources_fetch_succeeded = fetched_sources is not None
@@ -440,7 +453,7 @@ async def _build_registry(
         connected_source_types=connected_source_types,
         operator_values=operator_values,
     )
-    registry.register(search_handler)
+    registry.register(TracedToolHandler(search_handler))
     always_on_handlers.append(search_handler)
 
     web_search_provider = getattr(request.app.state, "web_search_provider", None)
@@ -602,7 +615,7 @@ async def _build_agent_chat_registry(
         connected_source_types=connected_source_types,
         operator_values=operator_values,
     )
-    registry.register(search_handler)
+    registry.register(TracedToolHandler(search_handler))
     always_on_handlers.append(search_handler)
 
     web_search_provider = getattr(request.app.state, "web_search_provider", None)
@@ -1371,6 +1384,16 @@ class StreamChatHandler:
             pending_interventions=pending_interventions,
             max_output_tokens=DEFAULT_MAX_TOKENS,
             transform_steering_message=transform_steering_message,
+        )
+
+        # 本轮执行追踪：包装事件流，记录模型调用、工具调用与轮次结果。
+        # 主循环照常产出事件，追踪失败不影响对话本身。
+        gen = traced_turn(
+            gen,
+            chat_id=chat_id,
+            user_id=chat.user_id,
+            user_message_id=_last_user_message_id(chat_messages),
+            model_name=llm_provider.model_name,
         )
 
         if redis_client is None:

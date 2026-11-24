@@ -36,6 +36,7 @@
         Trash2,
         Bot,
         BookOpen,
+        Activity,
         Folder,
     } from '@lucide/svelte'
     import { onMount, type Snippet } from 'svelte'
@@ -379,6 +380,10 @@
                     <span class="group-data-[collapsible=icon]:hidden">Agents</span>
                 </Button>
             {/if}
+            <Button href="/traces" variant="ghost" aria-label="追踪中心"
+                class="mb-2 flex w-full justify-start has-[>svg]:px-2">
+                <Activity /><span class="group-data-[collapsible=icon]:hidden">追踪中心</span>
+            </Button>
             <Button href="/employee-binding" variant="ghost" aria-label="员工服务"
                 class="mb-2 flex w-full justify-start has-[>svg]:px-2">
                 <BookOpen /><span class="group-data-[collapsible=icon]:hidden">员工服务</span>
