@@ -574,8 +574,12 @@
     type TraceRunSummary = {
         runId: string
         status: string
+        executionState: string
+        terminal: boolean
         steps: number
         durationMs: number | null
+        toolError: boolean
+        captureStatus: string
     }
     let traceRuns = $state<Record<string, TraceRunSummary>>({})
     let traceRefreshKey = $state('')
@@ -2992,6 +2996,7 @@
                         <!-- User Message -->
                         {#if i === lastUserMessageIndex}
                             <div
+                                id={`question-${message.origMessageId}`}
                                 data-testid={`chat-message-${message.origMessageId}`}
                                 class="group mt-8 flex w-full min-w-0 flex-col items-end"
                                 bind:this={lastUserMessageRef}>
@@ -3000,6 +3005,7 @@
                             </div>
                         {:else}
                             <div
+                                id={`question-${message.origMessageId}`}
                                 data-testid={`chat-message-${message.origMessageId}`}
                                 class="group mt-8 flex w-full min-w-0 flex-col items-end">
                                 {@render userMessageContent(message)}

@@ -4,9 +4,12 @@
 
     type RunSummary = {
         runId: string
-        status: string
+        executionState: string
+        terminal: boolean
         steps: number
         durationMs: number | null
+        toolError: boolean
+        captureStatus: string
     }
 
     let { chatId, run }: { chatId: string; run: RunSummary | undefined } = $props()
@@ -21,13 +24,16 @@
         onclick={() => (open = true)}>
         查看执行过程 · {run.steps} 步
         {#if run.durationMs !== null}· {(run.durationMs / 1000).toFixed(1)} 秒{/if}
+        {#if run.executionState === 'running'}· 进行中{/if}
+        {#if run.toolError}· 含工具失败{/if}
+        {#if run.captureStatus === 'degraded'}· 部分步骤可能缺失{/if}
     </button>
     <Sheet.Root bind:open>
         <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-lg">
             <Sheet.Header>
                 <Sheet.Title>执行过程</Sheet.Title>
                 <Sheet.Description>
-                    本轮问答实际发生的模型调用与工具步骤。记录由服务端写入并按轮次校验。
+                    本轮问答实际发生的模型调用与工具步骤，以及记录完整性与关联业务。
                 </Sheet.Description>
             </Sheet.Header>
             <div class="px-4 pb-6">
