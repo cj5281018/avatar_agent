@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "slug": "it-helpdesk",
+      "baseUrl": "http://127.0.0.1:18892",
+      "serviceKeyEnv": "PY_AVATAR_PLUGIN_IT_KEY",
+      "enabled": true,
+      "allowedActions": [
+        "create_ticket",
+        "get_ticket",
+        "list_my_tickets"
+      ],
+      "contractVersion": "1.1.0",
+      "manifestSha256": "116d7bf90db9a547fff7aa4caff3587377c7520514af1289205d1f5e9e75c36a"
+    }
+  ]
+}

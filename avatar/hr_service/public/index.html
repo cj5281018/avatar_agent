@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HR Daily | 请假管理</title>
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body>
+    <section class="login-view" id="login-view">
+      <form class="login-panel" id="login-form">
+        <div class="login-brand"><span class="brand-mark">HR</span><strong>HR Daily</strong></div>
+        <h1>管理登录</h1>
+        <label>
+          <span>管理员账号</span>
+          <input id="login-username" name="username" autocomplete="username" value="admin" required />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <p class="form-error" id="login-error" aria-live="polite"></p>
+        <button class="primary wide" type="submit">登录</button>
+      </form>
+    </section>
+
+    <div id="app-view" hidden>
+      <header class="topbar">
+        <div class="brand-mark">HR</div>
+        <strong>HR Daily</strong>
+        <span>请假管理</span>
+        <div class="integration-status" id="integration-status" role="status" aria-live="polite">读取中</div>
+        <button class="icon-button" id="refresh" type="button" title="刷新" aria-label="刷新">↻</button>
+        <button class="quiet-button" id="logout" type="button">退出</button>
+      </header>
+
+      <main>
+        <section class="overview">
+          <div class="overview-copy">
+            <p class="eyebrow">TODAY AT WORK</p>
+            <h1>请假与审批</h1>
+            <p id="overview-line">正在读取 HR 数据</p>
+          </div>
+          <img src="./assets/hr-leave-banner.png" alt="办公桌上的日历与审批印章" />
+        </section>
+
+        <section class="metrics" aria-label="请假概况">
+          <article><span>全部申请</span><strong id="metric-total">0</strong></article>
+          <article><span>待审批</span><strong id="metric-pending">0</strong></article>
+          <article><span>已通过</span><strong id="metric-approved">0</strong></article>
+          <article><span>已拒绝</span><strong id="metric-rejected">0</strong></article>
+        </section>
+
+        <section class="data-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">REQUESTS</p>
+              <h2>请假记录</h2>
+            </div>
+            <div class="section-actions">
+              <span id="updated-at"></span>
+              <button class="primary" id="new-leave" type="button">＋ 新增请假</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>申请人</th>
+                  <th>日期</th>
+                  <th>类型与原因</th>
+                  <th>审批人</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="leave-rows"></tbody>
+            </table>
+            <div class="empty" id="leave-empty">暂无请假记录</div>
+          </div>
+        </section>
+
+        <section class="data-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">DIRECTORY</p>
+              <h2>人员与审批关系</h2>
+            </div>
+            <button class="primary" id="new-employee" type="button">＋ 新增人员</button>
+          </div>
+          <div class="directory" id="employee-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="employee-dialog">
+      <form class="dialog-form" id="employee-form">
+        <div class="dialog-head">
+          <div><p class="eyebrow">DIRECTORY</p><h2 id="employee-dialog-title">新增人员</h2></div>
+          <button class="icon-button close-dialog" type="button" aria-label="关闭" title="关闭">×</button>
+        </div>
+        <div class="form-grid">
+          <label><span>账号</span><input id="employee-handle" autocomplete="off" maxlength="32" required /></label>
+          <label><span>姓名</span><input id="employee-name" autocomplete="off" maxlength="80" required /></label>
+          <label><span>岗位</span><input id="employee-title" autocomplete="off" maxlength="120" required /></label>
+          <label><span>职级</span><input id="employee-rank" autocomplete="off" maxlength="40" /></label>
+        </div>
+        <fieldset>
+          <legend>审批人</legend>
+          <div class="check-grid" id="approver-options"></div>
+        </fieldset>
+        <label class="toggle-row"><input id="employee-active" type="checkbox" checked /><span>启用人员</span></label>
+        <p class="form-error" id="employee-error" aria-live="polite"></p>
+        <div class="dialog-actions"><button class="quiet-button close-dialog" type="button">取消</button><button class="primary" type="submit">保存</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="leave-dialog">
+      <form class="dialog-form" id="leave-form">
+        <div class="dialog-head">
+          <div><p class="eyebrow">REQUEST</p><h2>新增请假</h2></div>
+          <button class="icon-button close-dialog" type="button" aria-label="关闭" title="关闭">×</button>
+        </div>
+        <label><span>申请人</span><select id="leave-requester" required></select></label>
+        <div class="form-grid">
+          <label><span>开始日期</span><input id="leave-start" type="date" required /></label>
+          <label><span>结束日期</span><input id="leave-end" type="date" required /></label>
+        </div>
+        <label><span>类型</span><select id="leave-type"><option value="annual">年假</option><option value="sick">病假</option><option value="personal">事假</option><option value="compensatory">调休</option><option value="other">其他</option></select></label>
+        <label><span>原因</span><textarea id="leave-reason" maxlength="2000" required></textarea></label>
+        <p class="form-error" id="leave-error" aria-live="polite"></p>
+        <div class="dialog-actions"><button class="quiet-button close-dialog" type="button">取消</button><button class="primary" type="submit">创建</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

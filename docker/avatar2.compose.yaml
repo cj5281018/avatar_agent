@@ -1,0 +1,76 @@
+services:
+  postgres:
+    container_name: !reset null
+  redis:
+    container_name: !reset null
+  web:
+    container_name: !reset null
+    image: avatar2-web:local
+    build: ../web
+    environment:
+      AVATAR2_GATEWAY_URL: http://gateway:8790
+      AVATAR2_INTERNAL_TOKEN: ${AVATAR2_INTERNAL_TOKEN:-}
+    ports:
+      - "127.0.0.1:${AVATAR2_WEB_PORT:-8300}:3000"
+  ai:
+    container_name: !reset null
+    image: avatar2-ai:local
+    build: ../services/ai
+    environment:
+      AVATAR2_GATEWAY_URL: http://gateway:8790
+      AVATAR2_INTERNAL_TOKEN: ${AVATAR2_INTERNAL_TOKEN:-}
+  searcher:
+    container_name: !reset null
+    image: avatar2-searcher:local
+    build: {context: .., dockerfile: services/searcher/Dockerfile}
+  indexer:
+    container_name: !reset null
+    image: avatar2-indexer:local
+    build: {context: .., dockerfile: services/indexer/Dockerfile}
+  migrator:
+    container_name: !reset null
+    image: avatar2-migrator:local
+    build: {context: .., dockerfile: services/migrations/Dockerfile}
+  connector-manager:
+    container_name: !reset null
+    image: avatar2-connector-manager:local
+    build: {context: .., dockerfile: services/connector-manager/Dockerfile}
+  filesystem-connector:
+    container_name: !reset null
+    image: avatar2-filesystem:local
+    build: {context: .., dockerfile: connectors/filesystem/Dockerfile}
+    volumes:
+      - ../source-documents:/knowledge:ro
+  gateway:
+    build: {context: .., dockerfile: docker/gateway.Dockerfile}
+    environment:
+      PY_AVATAR_PUBLIC_URL: http://gateway:8790
+      PY_AVATAR_HR_URL: http://hr:8891
+      AVATAR2_INTERNAL_TOKEN: ${AVATAR2_INTERNAL_TOKEN:-}
+      AVATAR2_BINDING_KEY: ${AVATAR2_BINDING_KEY:-}
+    volumes:
+      - gateway_data:/data
+    networks: [omni-network]
+  hr:
+    build: {context: ../avatar, dockerfile: Dockerfile, target: hr}
+    environment:
+      HR_AVATAR_BASE_URL: http://gateway:8790
+      HR_PUBLIC_URL: http://hr:8891
+    volumes:
+      - hr_data:/var/lib/hr
+    networks: [omni-network]
+volumes:
+  postgres_data:
+    name: !reset null
+  redis_data:
+    name: !reset null
+  ai_models:
+    name: !reset null
+  gateway_data:
+  hr_data:
+
+
+
+
+
+

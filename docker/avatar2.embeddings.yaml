@@ -1,0 +1,19 @@
+services:
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    container_name: !reset null
+    mem_limit: 4g
+    cpus: 2
+    command: ["--model-id", "/model", "--port", "8001", "--dtype", "float32", "--max-client-batch-size", "64", "--max-batch-tokens", "512"]
+    volumes: !override
+      - type: bind
+        source: ${AVATAR2_BGE_MODEL_DIR:?Set the local BGE Chinese model snapshot path}
+        target: /model
+        read_only: true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+

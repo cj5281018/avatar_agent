@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+export PYTHONPATH="/opt/hermes"
+exec /opt/hermes/.venv/bin/python -m hermes_cli.main "$@"
+

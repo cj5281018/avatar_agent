@@ -1,0 +1,26 @@
+# Secrets and local overrides
+.env
+.env.local
+*.local.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+build/
+
+# Rust
+target/
+
+# Local data and artifacts
+*.sqlite3
+*.db
+*.log
+
+# External evaluation corpus (re-cloneable, ~49MB; see README)
+benchmark-data/

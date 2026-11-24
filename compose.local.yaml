@@ -1,0 +1,7 @@
+services:
+  web:
+    ports:
+      - "127.0.0.1:8300:3000"
+  filesystem-connector:
+    volumes:
+      - "D:/2026shixi/avatar2/source-documents:/knowledge:ro"
