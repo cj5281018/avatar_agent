@@ -27,6 +27,8 @@ class ActiveRun:
     # Last model call that produced tool calls; tool spans hang off it.
     model_span_id: str | None = None
     degraded: bool = False
+    dropped: int = 0
+    capture_error: str | None = None
     failure: str | None = None
     extra: dict[str, str] = field(default_factory=dict)
 

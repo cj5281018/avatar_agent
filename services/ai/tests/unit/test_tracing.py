@@ -94,6 +94,8 @@ class _Connection:
                 "last_seq": 0,
                 "head_digest": None,
                 "seal": None,
+                "capture_status": "ok",
+                "dropped_events": 0,
             }
         elif "INSERT INTO agent_trace_events" in sql:
             (run_id, seq, event_id, span_id, parent_span_id, type, ts, payload, previous, digest) = args
@@ -113,18 +115,40 @@ class _Connection:
                 }
             )
         elif "UPDATE agent_trace_runs" in sql and "SET last_seq" in sql:
-            run_id, seq, digest = args
+            run_id, seq, digest, _last_event_at = args
             self.pool.runs[run_id]["last_seq"] = seq
             self.pool.runs[run_id]["head_digest"] = digest
+        elif "SET capture_status = 'degraded'" in sql:
+            run_id, reason = args
+            run = self.pool.runs[run_id]
+            run["capture_status"] = "degraded"
+            run["capture_error"] = run.get("capture_error") or reason
+            run["dropped_events"] = run.get("dropped_events", 0) + 1
         elif "UPDATE agent_trace_runs" in sql and "SET status" in sql:
-            run_id, status, error_code, ended_at, assistant_message_id, seal_version, seal = args
-            self.pool.runs[run_id].update(
+            (
+                run_id,
+                status,
+                error_code,
+                ended_at,
+                assistant_message_id,
+                seal_version,
+                seal,
+                capture_status,
+                capture_error,
+                dropped_events,
+            ) = args
+            run = self.pool.runs[run_id]
+            run.update(
                 status=status,
                 error_code=error_code,
                 ended_at=ended_at,
                 seal_version=seal_version,
                 seal=seal,
+                capture_error=run.get("capture_error") or capture_error,
+                dropped_events=max(run.get("dropped_events", 0), dropped_events),
             )
+            if run.get("capture_status") != "degraded":
+                run["capture_status"] = capture_status
         else:
             raise AssertionError(f"unexpected execute: {sql}")
 
@@ -224,6 +248,37 @@ class WriterTest(unittest.IsolatedAsyncioTestCase):
             stored["seal"],
             seal_digest(b"k1", run_id=run.run_id, last_seq=3, head_digest=stored["head_digest"]),
         )
+        self.assertEqual(stored["capture_status"], "ok")
+
+    async def test_dropped_event_is_reported_as_degraded_capture(self):
+        import os
+
+        pool = FakePool()
+        writer = TraceWriter(pool, None)
+        run = await writer.start_run(
+            chat_id="chat-1", user_id="user-1", user_message_id=None, model_name=None
+        )
+        recorded = await writer.append(
+            run_id=run.run_id, type="run.started", payload={}, span_id="s1"
+        )
+        self.assertTrue(recorded)
+
+        os.environ["AVATAR2_TRACE_FAULT_EVENT"] = "model.started"
+        try:
+            dropped = await writer.append(
+                run_id=run.run_id, type="model.started", payload={}, span_id="s2"
+            )
+        finally:
+            os.environ.pop("AVATAR2_TRACE_FAULT_EVENT")
+        self.assertFalse(dropped)
+        self.assertEqual(pool.runs[run.run_id]["capture_status"], "degraded")
+        self.assertEqual(pool.runs[run.run_id]["dropped_events"], 1)
+
+        # A later successful write must not clear the degradation.
+        await writer.append(run_id=run.run_id, type="run.finished", payload={}, span_id="s1")
+        await writer.finish(run_id=run.run_id, status="completed", capture_status="ok")
+        self.assertEqual(pool.runs[run.run_id]["capture_status"], "degraded")
+        self.assertEqual(pool.runs[run.run_id]["status"], "completed")
 
     async def test_attempt_number_increases_per_user_message(self):
         pool = FakePool()

@@ -5,10 +5,13 @@ Design constraints:
 * **The chain is per run.** Appending locks the run row, so two processes (or
   two concurrent tool calls) can never fork the chain; ``(run_id, seq)`` and
   ``(run_id, event_id)`` are also enforced by the database.
-* **Tracing must never break the conversation.** Every failure is logged and
-  flips the run into a degraded state at most; the caller's business result is
-  returned unchanged. A failed write is retried exactly once by the caller with
-  the same event id, and business actions are never replayed because of it.
+* **Tracing must never break the conversation.** A failed insert is reported to
+  the caller and persisted as a capture-health degradation, but the business
+  result is returned unchanged. Nothing is ever replayed because a trace write
+  failed.
+* **Capture health is independent of chain integrity.** Once a run has dropped
+  an event it stays degraded for the rest of the run; later successful writes
+  cannot turn it back into "healthy".
 """
 
 from __future__ import annotations
@@ -25,7 +28,6 @@ if TYPE_CHECKING:
 
 from tracing.canonical import (
     SEAL_VERSION,
-    ALGORITHM,
     event_digest,
     seal_digest,
 )
@@ -34,6 +36,11 @@ from tracing.context import ActiveRun
 logger = logging.getLogger(__name__)
 
 MAX_PAYLOAD_STRING = 600
+CAPTURE_OK = "ok"
+CAPTURE_DEGRADED = "degraded"
+CAPTURE_UNKNOWN = "unknown"
+
+_fault_injected: set[str] = set()
 
 
 def utc_now() -> datetime:
@@ -80,6 +87,26 @@ def new_id() -> str:
     return uuid.uuid4().hex
 
 
+class _InjectedFault(RuntimeError):
+    """Raised only by the explicit fault-injection hook (see ``_fault_hook``)."""
+
+
+def _fault_hook(event_type: str) -> None:
+    """Controlled fixture: ``AVATAR2_TRACE_FAULT_EVENT`` drops one event.
+
+    Used by the acceptance suite to prove that a dropped write is reported as a
+    capture degradation rather than as a healthy chain. Each listed type fails
+    once per process; the variable is empty in normal operation.
+    """
+    configured = os.getenv("AVATAR2_TRACE_FAULT_EVENT", "").strip()
+    if not configured:
+        return
+    types = {value.strip() for value in configured.split(",") if value.strip()}
+    if event_type in types and event_type not in _fault_injected:
+        _fault_injected.add(event_type)
+        raise _InjectedFault(f"injected failure for {event_type}")
+
+
 class TraceWriter:
     def __init__(self, pool: "Pool", seal_key: bytes | None) -> None:
         self._pool = pool
@@ -116,8 +143,8 @@ class TraceWriter:
                 await conn.execute(
                     """INSERT INTO agent_trace_runs
                        (run_id, chat_id, user_id, user_message_id, attempt,
-                        status, model_name, started_at)
-                       VALUES ($1, $2, $3, $4, $5, 'running', $6, $7)""",
+                        status, model_name, started_at, capture_status, last_event_at)
+                       VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, 'ok', $7)""",
                     run_id,
                     chat_id,
                     user_id,
@@ -146,11 +173,13 @@ class TraceWriter:
         span_id: str,
         parent_span_id: str | None = None,
         event_id: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """Append one event. Returns False when the event was not recorded."""
         event_id = event_id or new_id()
         body = clean_payload(payload)
         async with self._lock(run_id):
             try:
+                _fault_hook(type)
                 async with self._pool.acquire() as conn:
                     async with conn.transaction():
                         row = await conn.fetchrow(
@@ -160,7 +189,7 @@ class TraceWriter:
                         )
                         if row is None:
                             logger.warning("Trace run %s vanished; dropping event %s", run_id, type)
-                            return
+                            return False
                         seq = int(row["last_seq"]) + 1
                         previous = row["head_digest"]
                         moment = utc_now()
@@ -194,14 +223,38 @@ class TraceWriter:
                         )
                         await conn.execute(
                             """UPDATE agent_trace_runs
-                               SET last_seq = $2, head_digest = $3
+                               SET last_seq = $2, head_digest = $3, last_event_at = $4
                                WHERE run_id = $1""",
                             run_id,
                             seq,
                             digest,
+                            moment,
                         )
-            except Exception:
+                return True
+            except Exception as exc:
                 logger.exception("Trace event %s for run %s was not recorded", type, run_id)
+                await self._persist_degradation(run_id, f"{type}: {exc.__class__.__name__}")
+                return False
+
+    async def _persist_degradation(self, run_id: str, reason: str) -> None:
+        """Best-effort durable evidence that events may be missing.
+
+        If the database itself is unavailable this write fails too; the reader
+        then falls back to the run's stale heartbeat (see the detail API).
+        """
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    """UPDATE agent_trace_runs
+                       SET capture_status = 'degraded',
+                           capture_error = COALESCE(capture_error, $2),
+                           dropped_events = dropped_events + 1
+                       WHERE run_id = $1""",
+                    run_id,
+                    reason[:300],
+                )
+        except Exception:
+            logger.exception("Capture degradation for run %s could not be persisted", run_id)
 
     async def finish(
         self,
@@ -210,6 +263,9 @@ class TraceWriter:
         status: str,
         error_code: str | None = None,
         assistant_message_id: str | None = None,
+        capture_status: str = CAPTURE_OK,
+        capture_error: str | None = None,
+        dropped_events: int = 0,
     ) -> None:
         async with self._lock(run_id):
             try:
@@ -234,11 +290,22 @@ class TraceWriter:
                             if self._seal_key and last_seq > 0
                             else None
                         )
+                        # A run that never recorded a single event cannot claim
+                        # healthy capture even if the process believes it was fine.
+                        effective_capture = capture_status
+                        if last_seq == 0 and capture_status != CAPTURE_DEGRADED:
+                            effective_capture = CAPTURE_UNKNOWN
                         await conn.execute(
                             """UPDATE agent_trace_runs
                                SET status = $2, error_code = $3, ended_at = $4,
                                    assistant_message_id = COALESCE($5, assistant_message_id),
-                                   seal_version = $6, seal = $7
+                                   seal_version = $6, seal = $7,
+                                   capture_status = CASE
+                                       WHEN capture_status = 'degraded' THEN 'degraded'
+                                       ELSE $8
+                                   END,
+                                   capture_error = COALESCE(capture_error, $9),
+                                   dropped_events = GREATEST(dropped_events, $10)
                                WHERE run_id = $1""",
                             run_id,
                             status,
@@ -247,6 +314,9 @@ class TraceWriter:
                             assistant_message_id,
                             SEAL_VERSION if seal else None,
                             seal,
+                            effective_capture,
+                            capture_error,
+                            dropped_events,
                         )
             except Exception:
                 logger.exception("Trace run %s could not be finalised", run_id)
@@ -274,8 +344,9 @@ def build_writer(pool: "Pool") -> TraceWriter | None:
 
 
 __all__ = [
-    "ALGORITHM",
-    "SEAL_VERSION",
+    "CAPTURE_DEGRADED",
+    "CAPTURE_OK",
+    "CAPTURE_UNKNOWN",
     "TraceWriter",
     "build_writer",
     "clean_payload",

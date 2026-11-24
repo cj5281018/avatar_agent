@@ -35,6 +35,7 @@ class _TapState:
         self.output_tokens = 0
         self.tool_requests = 0
         self.model_calls = 0
+        self.first_text_ms: int | None = None
         self.stream_error: str | None = None
 
     def reset_model(self) -> None:
@@ -48,15 +49,20 @@ async def _close_model_span(state: _TapState, *, status: str = "ok") -> None:
     if state.model_span is None or state.model_started_at is None:
         return
     duration_ms = int((time.monotonic() - state.model_started_at) * 1000)
+    payload = {
+        "model": state.model_name,
+        "durationMs": duration_ms,
+        "inputTokens": state.input_tokens,
+        "outputTokens": state.output_tokens,
+        "status": status,
+        "callIndex": state.model_calls,
+    }
+    # Only measured when the provider actually streamed text; never inferred.
+    if state.first_text_ms is not None:
+        payload["firstTextMs"] = state.first_text_ms
     await emit(
         "model.completed" if status == "ok" else "model.failed",
-        {
-            "model": state.model_name,
-            "durationMs": duration_ms,
-            "inputTokens": state.input_tokens,
-            "outputTokens": state.output_tokens,
-            "status": status,
-        },
+        payload,
         span_id=state.model_span,
     )
     state.reset_model()
@@ -103,13 +109,23 @@ async def _inspect(raw: str, state: _TapState) -> None:
         state.model_span = new_id()
         state.model_started_at = time.monotonic()
         state.model_calls += 1
+        state.first_text_ms = None
         state.input_tokens, state.output_tokens = _usage_totals(message)
         set_model_span(state.model_span)
         await emit(
             "model.started",
-            {"model": state.model_name},
+            {"model": state.model_name, "callIndex": state.model_calls},
             span_id=state.model_span,
         )
+    elif event_type == "content_block_delta":
+        delta = event.get("delta") or {}
+        if (
+            isinstance(delta, dict)
+            and delta.get("type") == "text_delta"
+            and state.first_text_ms is None
+            and state.model_started_at is not None
+        ):
+            state.first_text_ms = int((time.monotonic() - state.model_started_at) * 1000)
     elif event_type == "message_delta":
         usage = event.get("usage") or {}
         if isinstance(usage, dict):
@@ -195,11 +211,19 @@ async def traced_turn(
                 "durationMs": int((time.monotonic() - started) * 1000),
                 "modelCalls": state.model_calls,
                 "toolRequests": state.tool_requests,
+                "captureStatus": "degraded" if run.degraded else "ok",
             },
             span_id=run.run_id,
         )
         try:
-            await run.writer.finish(run_id=run.run_id, status=status, error_code=error_code)
+            await run.writer.finish(
+                run_id=run.run_id,
+                status=status,
+                error_code=error_code,
+                capture_status="degraded" if run.degraded else "ok",
+                capture_error=run.capture_error,
+                dropped_events=run.dropped,
+            )
         except Exception:
             logger.exception("Trace run %s could not be finalised", run.run_id)
         reset_run(token)
