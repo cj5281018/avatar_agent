@@ -50,7 +50,7 @@ function wireUpdateFlow(registration: ServiceWorkerRegistration): void {
     }
 
     const offerUpdate = (worker: ServiceWorker) => {
-        toast('Omni has been updated', {
+        toast('Avatar has been updated', {
             id: UPDATE_TOAST_ID,
             duration: Infinity,
             action: {

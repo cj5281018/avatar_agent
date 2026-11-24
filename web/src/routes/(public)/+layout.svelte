@@ -9,11 +9,11 @@
             <div class="mb-4 flex justify-center gap-1">
                 <img
                     src={themeStore.current.omniLogoLight}
-                    alt="Omni logo"
+                    alt="Avatar logo"
                     class="omni-logo-light h-8 w-8 rounded-lg" />
                 <img
                     src={themeStore.current.omniLogoDark}
-                    alt="Omni logo"
+                    alt="Avatar logo"
                     class="omni-logo-dark h-8 w-8 rounded-lg" />
                 <p class="text-2xl font-semibold">{themeStore.current.omniName}</p>
             </div>

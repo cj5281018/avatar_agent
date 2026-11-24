@@ -18,7 +18,7 @@
 </script>
 
 <svelte:head>
-    <title>{data.isFirstUser ? 'Welcome to Omni' : 'Sign Up'}</title>
+    <title>{data.isFirstUser ? 'Welcome to Avatar' : 'Sign Up'}</title>
 </svelte:head>
 
 <Card class="w-full">
@@ -28,7 +28,7 @@
             <CardDescription>Create an admin account to get started</CardDescription>
         {:else}
             <CardTitle class="text-2xl">Create your account</CardTitle>
-            <CardDescription>Get started using Omni</CardDescription>
+            <CardDescription>Get started using Avatar</CardDescription>
         {/if}
     </CardHeader>
     <CardContent>

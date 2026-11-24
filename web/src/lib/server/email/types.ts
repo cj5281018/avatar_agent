@@ -43,8 +43,8 @@ export abstract class EmailProvider {
         isNewUser: boolean = false,
     ): Promise<EmailResult> {
         const subject = isNewUser
-            ? 'Welcome to Omni - Complete your account setup'
-            : 'Your Omni login link'
+            ? 'Welcome to Avatar - Complete your account setup'
+            : 'Your Avatar login link'
 
         return this.sendAndLog({
             to: email,
@@ -57,7 +57,7 @@ export abstract class EmailProvider {
     async sendTestEmail(email: string): Promise<EmailResult> {
         return this.sendAndLog({
             to: email,
-            subject: 'Omni - Test Email',
+            subject: 'Avatar - Test Email',
             html: generateTestEmailHtml(email),
             text: generateTestEmailText(email),
         })

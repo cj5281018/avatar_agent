@@ -226,7 +226,7 @@
         <Dialog.Header>
             <Dialog.Title>Connect Salesforce</Dialog.Title>
             <Dialog.Description>
-                Sync Salesforce data into Omni, or enable native read actions with per-user OAuth.
+                Sync Salesforce data into Avatar, or enable native read actions with per-user OAuth.
             </Dialog.Description>
         </Dialog.Header>
 
@@ -325,7 +325,7 @@
                         placeholder="https://yourorg.salesforce.com"
                         required />
                     <p class="text-muted-foreground text-sm">
-                        Native actions require each user to authorize Salesforce through Omni.
+                        Native actions require each user to authorize Salesforce through Avatar.
                         Example: https://yourorg.salesforce.com
                     </p>
                 </div>
@@ -347,7 +347,7 @@
 
             <Tabs.Content value="no-sync" class="space-y-4 pt-1">
                 <div class="rounded-md border p-3 text-sm">
-                    Omni will not sync or index Salesforce records. Each user authorizes Salesforce
+                    Avatar will not sync or index Salesforce records. Each user authorizes Salesforce
                     with their own account before using the native read actions. First authorize the
                     source org to bind this source to the correct Salesforce organization.
                 </div>
@@ -376,7 +376,7 @@
                     <Input id="oauth-login-url" bind:value={loginUrl} required />
                     <p class="text-muted-foreground text-sm">
                         Use https://login.salesforce.com for production or
-                        https://test.salesforce.com for a sandbox. Add Omni's OAuth callback URL,
+                        https://test.salesforce.com for a sandbox. Add Avatar's OAuth callback URL,
                         shown under OAuth Apps, to the External Client App.
                     </p>
                 </div>

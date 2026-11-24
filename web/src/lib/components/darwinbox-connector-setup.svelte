@@ -197,7 +197,7 @@
             <Dialog.Description>
                 Sync Darwinbox employee directory and organization data, and enable HR workflow
                 actions for agents. The dataset key controls which users and fields the API can
-                access; Omni attempts every available module and skips anything the provider denies.
+                access; Avatar attempts every available module and skips anything the provider denies.
             </Dialog.Description>
         </Dialog.Header>
 

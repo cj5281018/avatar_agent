@@ -22,13 +22,13 @@
 </script>
 
 <svelte:head>
-    <title>Login - Omni</title>
+    <title>Login - Avatar</title>
 </svelte:head>
 
 <Card class="w-full">
     <CardHeader class="text-center">
         <CardTitle class="text-2xl">Welcome back</CardTitle>
-        <CardDescription>Sign in to your Omni account</CardDescription>
+        <CardDescription>Sign in to your Avatar account</CardDescription>
     </CardHeader>
     <CardContent>
         {#if data?.success}

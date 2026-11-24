@@ -57,7 +57,7 @@ export const actions: Actions = {
 
             if (!canAccessSystem) {
                 return fail(403, {
-                    error: 'Your email domain is not approved for this Omni instance, or magic link authentication is not enabled for your account.',
+                    error: 'Your email domain is not approved for this Avatar instance, or magic link authentication is not enabled for your account.',
                     email: validEmail,
                 })
             }

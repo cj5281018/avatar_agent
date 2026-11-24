@@ -314,11 +314,11 @@
                     {:else if isSearch && (toolName === 'search' || toolName === 'search_documents')}
                         <img
                             src={themeStore.current.omniLogoLight}
-                            alt="Omni"
+                            alt="Avatar"
                             class="omni-logo-light !m-0 h-4 w-4 shrink-0 rounded-sm" />
                         <img
                             src={themeStore.current.omniLogoDark}
-                            alt="Omni"
+                            alt="Avatar"
                             class="omni-logo-dark !m-0 h-4 w-4 shrink-0 rounded-sm" />
                     {:else if isSearch}
                         <Search class="h-4 w-4 shrink-0" />

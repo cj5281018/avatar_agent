@@ -1,8 +1,8 @@
 {
     "id": "/",
-    "name": "Omni",
-    "short_name": "omni",
-    "description": "Your company's AI agent. Search connected sources, chat, and get briefings.",
+    "name": "Avatar",
+    "short_name": "Avatar",
+    "description": "Avatar - your company internal agent. Ask policies, complete department actions, and trace every turn.",
     "lang": "en",
     "dir": "ltr",
     "categories": ["business", "productivity"],
@@ -28,6 +28,11 @@
         }
     ],
     "icons": [
+        {
+            "src": "/avatar-mark.svg",
+            "sizes": "any",
+            "type": "image/svg+xml"
+        },
         {
             "src": "/icon-192.png",
             "sizes": "192x192",

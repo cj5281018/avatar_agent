@@ -114,7 +114,7 @@
                 <div
                     class="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                     Configure a Google Ads OAuth client in the OAuth app clients tab before
-                    connecting. Omni will use that OAuth client to authorize access with Google.
+                    connecting. Avatar will use that OAuth client to authorize access with Google.
                 </div>
             {/if}
 

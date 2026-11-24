@@ -183,7 +183,7 @@
             <p>
                 Grant <span class="font-medium">both</span> Application permissions (used for
                 org-wide sync) and Delegated permissions (used when individual users connect
-                their account for tools) on Microsoft Graph for this app registration. Omni
+                their account for tools) on Microsoft Graph for this app registration. Avatar
                 reuses the same client credentials for both flows.
             </p>
             <div class="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">

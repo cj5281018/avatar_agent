@@ -102,6 +102,6 @@ describe('PWA navigation handling', () => {
         const response = await navigate(handler)
 
         expect(response.status).toBe(503)
-        expect(await response.text()).toContain("Omni couldn't connect")
+        expect(await response.text()).toContain("Avatar couldn't connect")
     })
 })

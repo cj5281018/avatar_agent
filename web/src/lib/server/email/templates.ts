@@ -3,10 +3,10 @@ export function generateMagicLinkHtml(
     email: string,
     isNewUser: boolean,
 ): string {
-    const title = isNewUser ? 'Welcome to Omni' : 'Sign in to Omni'
+    const title = isNewUser ? 'Welcome to Avatar' : 'Sign in to Avatar'
     const message = isNewUser
-        ? "Welcome to Omni! Click the link below to complete your account setup and access your company's search platform."
-        : 'Click the link below to sign in to your Omni account.'
+        ? "Welcome to Avatar! Click the link below to complete your account setup and access your company's search platform."
+        : 'Click the link below to sign in to your Avatar account.'
 
     return `
 <!DOCTYPE html>
@@ -100,7 +100,7 @@ export function generateMagicLinkHtml(
 <body>
     <div class="container">
         <div class="header">
-            <div class="logo">Omni</div>
+            <div class="logo">Avatar</div>
             <h1 class="title">${title}</h1>
         </div>
 
@@ -110,7 +110,7 @@ export function generateMagicLinkHtml(
 
         <div class="button-container">
             <a href="${magicLinkUrl}" class="button">
-                ${isNewUser ? 'Complete Setup' : 'Sign In to Omni'}
+                ${isNewUser ? 'Complete Setup' : 'Sign In to Avatar'}
             </a>
         </div>
 
@@ -126,7 +126,7 @@ export function generateMagicLinkHtml(
         <div class="footer">
             <p>If you didn't request this email, you can safely ignore it.</p>
             <p>This email was sent to <strong>${email}</strong></p>
-            <p>Powered by Omni - Enterprise Search Platform</p>
+            <p>Powered by Avatar - Enterprise Search Platform</p>
         </div>
     </div>
 </body>
@@ -220,9 +220,9 @@ export function generateTestEmailHtml(email: string): string {
         <span class="logo-text">omni</span>
     </div>
 
-    <p class="body-text">This is a test email from your Omni instance.</p>
+    <p class="body-text">This is a test email from your Avatar instance.</p>
 
-    <p class="body-text">If you're reading this, everything is working — Omni can now send transactional emails like login links and notifications.</p>
+    <p class="body-text">If you're reading this, everything is working — Avatar can now send transactional emails like login links and notifications.</p>
 
     <div class="status">
         <span class="check">&#10003;</span>
@@ -243,9 +243,9 @@ export function generateTestEmailText(email: string): string {
     return `
 omni
 
-This is a test email from your Omni instance.
+This is a test email from your Avatar instance.
 
-If you're reading this, everything is working — Omni can now send transactional emails like login links and notifications.
+If you're reading this, everything is working — Avatar can now send transactional emails like login links and notifications.
 
 ---
 Sent to ${email}
@@ -257,10 +257,10 @@ export function generateMagicLinkText(
     email: string,
     isNewUser: boolean,
 ): string {
-    const title = isNewUser ? 'Welcome to Omni' : 'Sign in to Omni'
+    const title = isNewUser ? 'Welcome to Avatar' : 'Sign in to Avatar'
     const message = isNewUser
-        ? "Welcome to Omni! Click the link below to complete your account setup and access your company's search platform."
-        : 'Click the link below to sign in to your Omni account.'
+        ? "Welcome to Avatar! Click the link below to complete your account setup and access your company's search platform."
+        : 'Click the link below to sign in to your Avatar account.'
 
     return `
 ${title}
@@ -278,6 +278,6 @@ If you didn't request this email, you can safely ignore it.
 This email was sent to ${email}
 
 ---
-Powered by Omni - Enterprise Search Platform
+Powered by Avatar - Enterprise Search Platform
 		`.trim()
 }

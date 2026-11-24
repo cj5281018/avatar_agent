@@ -103,7 +103,7 @@
         <Dialog.Header>
             <Dialog.Title>Windshift server</Dialog.Title>
             <Dialog.Description>
-                Point Omni at your Windshift instance. Users can then connect Windshift from My
+                Point Avatar at your Windshift instance. Users can then connect Windshift from My
                 Integrations; the connector uses these URLs for OAuth, sync, and MCP actions.
             </Dialog.Description>
         </Dialog.Header>

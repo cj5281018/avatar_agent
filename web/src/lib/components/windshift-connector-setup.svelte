@@ -37,11 +37,11 @@
                 </div>
             {/if}
             <p class="text-sm">
-                Windshift will show the exact read permissions Omni needs. The OAuth client is
+                Windshift will show the exact read permissions Avatar needs. The OAuth client is
                 registered automatically and uses PKCE; there is no client secret to configure.
             </p>
             <p class="text-muted-foreground text-xs">
-                Indexed content is private to your Omni account. Write actions request expanded
+                Indexed content is private to your Avatar account. Write actions request expanded
                 authorization when they are first used.
             </p>
         </div>

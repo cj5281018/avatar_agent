@@ -3,13 +3,16 @@ import type { Theme } from './types'
 import omniLogoLight from '$lib/images/icons/omni-logo-256.png'
 import omniLogoDark from '$lib/images/icons/omni-logo-dark-256.png'
 
+// Shared brand source: every shell reads the orb and name from here.
+const avatarMark = '/avatar-mark.svg'
+
 export const dark: Theme = {
     id: 'dark',
     name: 'Dark',
     colorScheme: 'dark',
-    omniLogoLight,
-    omniLogoDark,
-    omniName: 'omni',
+    omniLogoLight: avatarMark,
+    omniLogoDark: avatarMark,
+    omniName: 'Avatar',
     tokens: {
         background: 'oklch(0.145 0.018 258)',
         foreground: 'oklch(0.956 0.006 255)',

@@ -113,7 +113,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
 
     if (welcome) {
         return {
-            success: 'Welcome to Omni! Your account has been created successfully.',
+            success: 'Welcome to Avatar! Your account has been created successfully.',
             googleAuthEnabled,
             oktaAuthEnabled,
             entraAuthEnabled,

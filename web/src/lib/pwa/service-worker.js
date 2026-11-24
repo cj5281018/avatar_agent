@@ -1,5 +1,5 @@
 // @ts-nocheck — plain service worker script (worker scope, not DOM)
-/* Omni mobile PWA service worker.
+/* Avatar mobile PWA service worker.
  * Conservative: network-only application assets and API calls, a self-contained
  * recovery document for offline/failed navigations, plus Web Push. We
  * deliberately do not cache index.html without its versioned asset graph: that
@@ -20,7 +20,7 @@ function recoveryResponse() {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#060a12" />
-    <title>Omni — Connection problem</title>
+    <title>Avatar — Connection problem</title>
     <style>
       :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       * { box-sizing: border-box; }
@@ -37,7 +37,7 @@ function recoveryResponse() {
   <body>
     <main>
       <div class="mark" aria-hidden="true"></div>
-      <h1>Omni couldn't connect</h1>
+      <h1>Avatar couldn't connect</h1>
       <p>Check your connection or server, then try again.</p>
       <button id="retry" type="button">Retry</button>
     </main>
@@ -143,10 +143,10 @@ self.addEventListener('push', (event) => {
   try {
     payload = event.data ? event.data.json() : {};
   } catch {
-    payload = { title: 'Omni', body: event.data ? event.data.text() : '' };
+    payload = { title: 'Avatar', body: event.data ? event.data.text() : '' };
   }
 
-  const title = payload.title || 'Omni';
+  const title = payload.title || 'Avatar';
   const options = {
     body: payload.body || '',
     tag: payload.tag || payload.id || undefined,
