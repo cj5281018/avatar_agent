@@ -52,8 +52,9 @@ contract, HR, IT helpdesk and tests are under avatar/. The model runtime is
 copied verbatim. The upstream license is included at the repository root.
 
 Use /knowledge as the filesystem source path. The source build needs its own
-model settings and test accounts. Workbench employee binding, chat tool
-registration, in-chat confirmation and end-to-end verification are pending.
+model settings and test accounts. Employee binding, chat tool registration,
+in-chat confirmation, manager approval and same-request lookups are implemented
+and exercised end to end.
 
 ## Source provenance
 
@@ -62,3 +63,49 @@ c55816d7e36cce9d47c022382af4953e63af8625 and Avatar HEAD
 b87c16a7532e8c80f88c268df9498f0c99992bf4. The copy preserves the local source
 contents, including any local edits. SHA-256 comparison found zero differences
 between the copied AI Python files and the local source checkout.
+
+## Per-turn trace
+
+Every assistant attempt is stored as one run with an append-only event ledger:
+
+- `agent_trace_runs` holds one row per attempt (chat, user message, status,
+  model, last sequence and the sealed chain head).
+- `agent_trace_events` holds the events of that run. Each event's digest is a
+  SHA-256 over a canonical encoding that includes the previous digest, so a
+  later reader can detect edited, reordered or removed events.
+- Finished runs are sealed with HMAC-SHA256 (`AGENT_TRACE_SEAL_KEY`). Without a
+  key traces are still recorded, and the viewer shows `unsealed` instead of
+  `ok`.
+
+Recording happens outside the agent loop: the chat router wraps the stream it
+already receives, and the search and department tool handlers are decorated so
+tool spans carry the operation or request identifiers they produced. A failed
+trace write never fails or replays the business request.
+
+Where to look:
+
+- Each question in a chat has a `查看执行过程` entry; the sidebar has
+  `追踪中心` (`/traces`) listing recent runs for the signed-in user.
+- `GET /api/chat/{chatId}/runs` - run summaries for one chat (owner only).
+- `GET /api/chat/{chatId}/runs/{runId}` - events plus a recomputed
+  verification result: `ok`, `mismatch`, `truncated`, `unsealed` or `running`.
+- `GET /api/traces` - the caller's recent runs across chats.
+
+Verification is recomputed on read by
+`web/src/lib/server/trace/digest.ts`; the writer's canonical encoding lives in
+`services/ai/tracing/canonical.py`. Both suites pin the same golden vectors, so
+the two implementations cannot drift silently:
+
+    cd services/ai && python -m unittest discover -s tests/unit -p test_tracing.py -v
+    cd web && npm run test:integ -- src/lib/server/trace/digest.test.ts
+
+Operational notes:
+
+- `AVATAR2_TRACE_ENABLED=0` disables recording without touching the chat path.
+- Traces are scoped to chat ownership. A manager who can approve a leave
+  request cannot read the requester's conversation traces.
+- Payloads use a whitelist (model, tool, durations, counts, operation and leave
+  identifiers, error codes). Leave reasons, credentials and model input are not
+  recorded.
+- A run left in `running` after a crash is reported as such; the viewer never
+  infers that a tool succeeded and never retries a side-effecting tool.
