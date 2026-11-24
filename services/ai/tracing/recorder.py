@@ -24,10 +24,9 @@ async def emit(
     run = active_run()
     if run is None:
         return False
-    if run.degraded:
-        # Keep counting so the report says how much may be missing.
-        run.dropped += 1
-        return False
+    # Keep writing after a failure: the chain only knows about events that were
+    # stored, and losing every later step would hide far more than the one that
+    # failed. Degradation stays sticky via ``run.degraded``.
     try:
         recorded = await run.writer.append(
             run_id=run.run_id,

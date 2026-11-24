@@ -247,6 +247,9 @@
             {run.modelName ?? '模型'} · {events.length} 条事件 · 整轮 {seconds(run.durationMs)}
             {#if run.attempt > 1}· 第 {run.attempt} 次尝试{/if}
         </p>
+        <p class="text-xs text-muted-foreground">
+            整轮耗时含未单独打点的阶段；模型流耗时指模型开始返回至结束，并行或父子步骤可能重叠。
+        </p>
 
         {#if run.captureStatus === 'degraded'}
             <p class="rounded-md border border-destructive/40 p-2 text-xs" data-testid="trace-capture-note">

@@ -23,6 +23,8 @@ services:
       AVATAR2_INTERNAL_TOKEN: ${AVATAR2_INTERNAL_TOKEN:-}
       AGENT_TRACE_SEAL_KEY: ${AGENT_TRACE_SEAL_KEY:-}
       AVATAR2_TRACE_ENABLED: ${AVATAR2_TRACE_ENABLED:-1}
+      # Acceptance-only fixture: drop one event type per process. Empty in normal use.
+      AVATAR2_TRACE_FAULT_EVENT: ${AVATAR2_TRACE_FAULT_EVENT:-}
   searcher:
     container_name: !reset null
     image: avatar2-searcher:local

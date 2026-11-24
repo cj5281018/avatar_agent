@@ -274,10 +274,15 @@ class WriterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pool.runs[run.run_id]["capture_status"], "degraded")
         self.assertEqual(pool.runs[run.run_id]["dropped_events"], 1)
 
-        # A later successful write must not clear the degradation.
-        await writer.append(run_id=run.run_id, type="run.finished", payload={}, span_id="s1")
+        # Later events are still written: only the one that failed is missing.
+        recovered = await writer.append(
+            run_id=run.run_id, type="run.finished", payload={}, span_id="s1"
+        )
+        self.assertTrue(recovered)
+        self.assertEqual(len(pool.events), 2)
         await writer.finish(run_id=run.run_id, status="completed", capture_status="ok")
         self.assertEqual(pool.runs[run.run_id]["capture_status"], "degraded")
+        self.assertEqual(pool.runs[run.run_id]["dropped_events"], 1)
         self.assertEqual(pool.runs[run.run_id]["status"], "completed")
 
     async def test_attempt_number_increases_per_user_message(self):

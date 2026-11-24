@@ -86,10 +86,32 @@ Where to look:
 
 - Each question in a chat has a `查看执行过程` entry; the sidebar has
   `追踪中心` (`/traces`) listing recent runs for the signed-in user.
-- `GET /api/chat/{chatId}/runs` - run summaries for one chat (owner only).
+- `GET /api/chat/{chatId}/runs` - run summaries for one chat (owner only),
+  including the question text, capture health and whether any tool failed.
 - `GET /api/chat/{chatId}/runs/{runId}` - events plus a recomputed
   verification result: `ok`, `mismatch`, `truncated`, `unsealed` or `running`.
+  `?afterSeq=N` returns only newer events, for incremental polling.
+- `GET /api/chat/{chatId}/runs/{runId}/business` - read-only link from the
+  drafting turn to its leave card and latest HR status.
 - `GET /api/traces` - the caller's recent runs across chats.
+
+The panel reports three independent facts, because they can disagree:
+
+| Fact | Values | Meaning |
+|---|---|---|
+| Turn execution | running / ended / failed / cancelled / stale | whether the answer finished; `stale` means running with no heartbeat for 2 minutes |
+| Capture health | ok / degraded / unknown | whether every observed step was stored; once degraded, later writes cannot restore it |
+| Record integrity | ok / mismatch / truncated / unsealed / running | whether the stored events, the chain head and the seal still agree |
+
+A run whose process died mid-answer keeps `status = running`; the reader uses
+the last successfully written event as a heartbeat and downgrades it to
+`stale`, so an old half-written run is never shown as still in progress.
+
+Capture-health acceptance uses an explicit fixture: set
+`AVATAR2_TRACE_FAULT_EVENT=model.started` (or another event type) on the AI
+service and the first matching event of each process is dropped. The run must
+then show `degraded` while the business result is unaffected. Leave the variable
+empty in normal operation.
 
 Verification is recomputed on read by
 `web/src/lib/server/trace/digest.ts`; the writer's canonical encoding lives in
@@ -109,3 +131,26 @@ Operational notes:
   recorded.
 - A run left in `running` after a crash is reported as such; the viewer never
   infers that a tool succeeded and never retries a side-effecting tool.
+
+
+### Acceptance scripts
+
+`scripts/trace/` contains the re-runnable checks used for this feature. They
+drive the real workbench with a test employee/manager and read the ledger
+directly for fixtures:
+
+    # real flows: plain, retrieval, two questions, draft -> approve -> business, tool failure, access control
+    node scripts/trace/acceptance.cjs
+    # switching runs, dropped poll recovery, polling stops at terminal
+    node scripts/trace/resilience.cjs
+    # tamper, truncation, missing seal key, afterSeq contract
+    node scripts/trace/integrity-fixtures.cjs
+    # with AVATAR2_TRACE_FAULT_EVENT set on the AI service
+    node scripts/trace/capture-fault.cjs turn
+    node scripts/trace/capture-fault.cjs check   # after a restart, with FAULT_RUN_ID/FAULT_CHAT_ID
+
+They need Node with Playwright (`NODE_PATH` to a directory containing
+`playwright-core`) and these variables: `BASE`, `MODEL_ID`,
+`BOB_EMAIL/PASSWORD`, `ALICE_EMAIL/PASSWORD`, `ADMIN_EMAIL/PASSWORD`. The
+scripts never print or store credentials, and the damaged runs they create are
+clearly labelled test records.
