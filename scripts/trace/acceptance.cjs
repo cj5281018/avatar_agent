@@ -181,7 +181,10 @@ function payloadOf(body, type, predicate = () => true) {
         await bob.getByTestId('trace-entry').last().click()
         const business = bob.getByTestId('trace-business')
         await business.waitFor({ timeout: 20000 })
-        await business.getByRole('button', { name: '刷新办理状态' }).click()
+        // The association loads when the panel opens; wait for it, then use
+        // the refresh control once it is enabled.
+        await business.getByText(leaveId).waitFor({ timeout: 40000 })
+        await business.getByRole('button', { name: '刷新办理状态' }).click({ timeout: 15000 })
         await business.getByText(leaveId).waitFor({ timeout: 20000 })
         const businessText = await business.innerText()
         assert(businessText.includes('approved'), 'business status not approved: ' + businessText)

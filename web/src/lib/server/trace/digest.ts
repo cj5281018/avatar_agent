@@ -39,8 +39,16 @@ export type TraceRunRow = {
     seal: string | null
 }
 
+export type VerificationStatus =
+    | 'ok' // chain and seal both match
+    | 'mismatch'
+    | 'truncated'
+    | 'not_sealed' // written without a key: chain only, no seal to check
+    | 'unverifiable' // sealed at write time, but this reader has no key
+    | 'running' // not finished yet; nothing to seal
+
 export type Verification = {
-    status: 'ok' | 'mismatch' | 'truncated' | 'unsealed' | 'running'
+    status: VerificationStatus
     firstBadSeq?: number
     detail?: string
 }
@@ -134,12 +142,17 @@ export function verifyRun(
         }
     }
     if (run.sealVersion && run.seal) {
-        if (!sealKey) return { status: 'unsealed', detail: 'seal key is not configured' }
+        if (!sealKey) {
+            return {
+                status: 'unverifiable',
+                detail: '此记录写入时已封存，但当前验证端没有密钥，无法验证封存',
+            }
+        }
         const expected = sealDigest(sealKey, run.runId, run.lastSeq, run.headDigest)
         if (!safeEqual(expected, run.seal)) {
             return { status: 'mismatch', detail: 'chain head seal does not match' }
         }
         return { status: 'ok' }
     }
-    return { status: 'unsealed', detail: 'this run was recorded without a seal' }
+    return { status: 'not_sealed', detail: '此记录写入时未启用封存，只能校验已存事件链' }
 }

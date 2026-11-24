@@ -236,6 +236,10 @@ class TraceWriter:
                 await self._persist_degradation(run_id, f"{type}: {exc.__class__.__name__}")
                 return False
 
+    async def mark_capture_degraded(self, run_id: str, reason: str) -> None:
+        """Public hook for callers that observed an unrecordable step."""
+        await self._persist_degradation(run_id, reason)
+
     async def _persist_degradation(self, run_id: str, reason: str) -> None:
         """Best-effort durable evidence that events may be missing.
 

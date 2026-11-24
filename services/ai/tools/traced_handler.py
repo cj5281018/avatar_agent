@@ -23,7 +23,30 @@ RETRIEVAL_TOOLS = {"search"}
 
 
 MAX_TITLES = 5
-MAX_REASON = 200
+
+# Stable failure categories. The tool's raw error text is never persisted: it
+# can echo upstream bodies, request content or credentials. Matching only reads
+# the text to pick a category.
+SAFE_REASON = {
+    "invalid_arguments": "工具参数无效",
+    "binding_required": "需要先绑定或续期员工身份",
+    "upstream_unavailable": "部门工具暂时不可用",
+    "timeout": "工具调用超时",
+    "tool_error": "工具执行失败",
+}
+
+
+def _classify_failure(text: str) -> str:
+    lowered = text.lower()
+    if "未知工具" in text or "参数" in text or "invalid" in lowered or "validation" in lowered:
+        return "invalid_arguments"
+    if "绑定" in text or "binding" in lowered:
+        return "binding_required"
+    if "超时" in text or "timeout" in lowered:
+        return "timeout"
+    if "不可用" in text or "unavailable" in lowered or "502" in text or "503" in text:
+        return "upstream_unavailable"
+    return "tool_error"
 
 
 def _extract_refs(content: list[Any], *, is_error: bool) -> dict[str, Any]:
@@ -36,7 +59,7 @@ def _extract_refs(content: list[Any], *, is_error: bool) -> dict[str, Any]:
     refs: dict[str, Any] = {}
     hits = 0
     titles: list[str] = []
-    reason = ""
+    failure_text = ""
     for block in content or []:
         if not isinstance(block, dict):
             continue
@@ -50,8 +73,8 @@ def _extract_refs(content: list[Any], *, is_error: bool) -> dict[str, Any]:
         if block_type != "text":
             continue
         text = block.get("text")
-        if is_error and not reason and isinstance(text, str):
-            reason = text[:MAX_REASON]
+        if is_error and not failure_text and isinstance(text, str):
+            failure_text = text
         if not isinstance(text, str) or not text.startswith("{"):
             continue
         try:
@@ -70,8 +93,10 @@ def _extract_refs(content: list[Any], *, is_error: bool) -> dict[str, Any]:
         refs["hits"] = hits
     if titles:
         refs["titles"] = titles
-    if reason:
-        refs["reason"] = reason
+    if is_error:
+        code = _classify_failure(failure_text)
+        refs["reasonCode"] = code
+        refs["reason"] = SAFE_REASON[code]
     return refs
 
 
@@ -138,9 +163,10 @@ class TracedToolHandler:
         }
         # The query itself is what the employee typed in this chat; keep it short
         # so the step can be identified without storing the whole request.
-        query = tool_input.get("query") if isinstance(tool_input, dict) else None
-        if isinstance(query, str) and query.strip():
-            payload["queryPreview"] = query.strip()[:80]
+        if tool_name in RETRIEVAL_TOOLS:
+            query = tool_input.get("query") if isinstance(tool_input, dict) else None
+            if isinstance(query, str) and query.strip():
+                payload["queryPreview"] = query.strip()[:80]
         payload.update(
             _extract_refs(
                 getattr(result, "content", []) or [],

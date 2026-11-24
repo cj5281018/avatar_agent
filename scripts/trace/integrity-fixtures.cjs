@@ -4,7 +4,7 @@
  * Creates dedicated throwaway runs, then:
  *   - edits an event payload  -> mismatch, locating the first bad sequence
  *   - deletes the last event  -> truncated
- *   - verifies a sealed run with no key available -> unsealed (never "ok")
+ *   - verifies a sealed run with no key available -> unverifiable (never "ok")
  *   - checks the incremental contract: afterSeq returns only newer events
  *
  * The damaged runs are test records and are left in place as evidence.
@@ -127,8 +127,8 @@ async function newTurn(page, content) {
         // authoritative "sealed and intact" reading.
         assert.equal(snapshot.verification.status, 'ok', 'sealed run should verify through the API')
         // A reader without the key must never report the seal as verified.
-        assert.equal(verifyRun(mapped, mappedEvents, null).status, 'unsealed', 'missing key must not read ok')
-        evidence.noKey = 'unsealed'
+        assert.equal(verifyRun(mapped, mappedEvents, null).status, 'unverifiable', 'missing key must not read ok')
+        evidence.noKey = 'unverifiable'
 
         console.log('PASS integrity fixtures', JSON.stringify(evidence))
     } finally {

@@ -46,3 +46,21 @@ async def emit(
 
 def fail_run(message: str) -> None:
     mark_failure(message)
+
+
+async def capture_failure(run, category: str) -> None:
+    """Mark a turn degraded for an observed-but-unrecordable step.
+
+    Used when the tap saw data it could not parse or inspect, so there is no
+    append to fail. The counter means "observed failures", not an estimate of
+    how many steps are missing.
+    """
+    run.degraded = True
+    run.capture_error = run.capture_error or category
+    run.dropped += 1
+    try:
+        await run.writer.mark_capture_degraded(run.run_id, category)
+    except Exception:
+        # The database may be the thing that is broken; memory state still
+        # carries the degradation to the final update if that succeeds.
+        pass

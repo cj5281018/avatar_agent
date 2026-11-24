@@ -24,6 +24,9 @@ from tracing.canonical import (
     event_digest,
     seal_digest,
 )
+from tracing import tee
+from tracing.context import ActiveRun, bind_run, reset_run
+from tracing.recorder import capture_failure
 from tracing.writer import TraceWriter, clean_payload
 
 GOLDEN_DIGEST = "8b11e8634c1bcc5ef3f8c8d2e91e89dbb3f23d3910ad26060fffb241be8d814a"
@@ -218,6 +221,109 @@ class CanonicalSpecTest(unittest.TestCase):
         self.assertEqual(len(cleaned["long"]), 600)
         self.assertEqual(cleaned["nested"], {"ok": True})
         self.assertEqual(cleaned["list"], [1, 2])
+
+
+class StubWriter:
+    def __init__(self) -> None:
+        self.appended: list[dict[str, Any]] = []
+        self.degraded: list[tuple[str, str]] = []
+
+    async def append(self, **kwargs: Any) -> bool:
+        self.appended.append(kwargs)
+        return True
+
+    async def mark_capture_degraded(self, run_id: str, reason: str) -> None:
+        self.degraded.append((run_id, reason))
+
+
+def frame(event: str, data: Any) -> str:
+    nl = chr(10)
+    return "event: " + event + nl + "data: " + json.dumps(data) + nl + nl
+
+
+class TapTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.writer = StubWriter()
+        self.run = ActiveRun(run_id="run", chat_id="chat", user_id="user", writer=self.writer)
+        self.token = bind_run(self.run)
+
+    def tearDown(self) -> None:
+        reset_run(self.token)
+
+    async def test_malformed_message_frame_is_a_tap_failure(self):
+        with self.assertRaises(tee.TapFailure) as caught:
+            await tee._inspect("event: message" + chr(10) + "data: {not json" + chr(10) + chr(10), tee._TapState())
+        self.assertEqual(caught.exception.category, "malformed_message")
+
+    async def test_inspection_error_is_raised_for_broken_usage(self):
+        broken = frame(
+            "message",
+            {"type": "message_start", "message": {"model": "m", "usage": {"input_tokens": "x"}}},
+        )
+        with self.assertRaises(ValueError):
+            await tee._inspect(broken, tee._TapState())
+
+    async def test_protocol_frames_are_ignored(self):
+        state = tee._TapState()
+        for raw in (
+            frame("steering", {"type": "steering_message"}),
+            frame("save_message", {"role": "assistant", "content": []}),
+            "event: ping" + chr(10) + "data: {}" + chr(10) + chr(10),
+        ):
+            await tee._inspect(raw, state)
+        self.assertEqual(self.writer.appended, [])
+
+    async def test_first_visible_text_ignores_empty_deltas(self):
+        state = tee._TapState()
+        await tee._inspect(
+            frame("message", {"type": "message_start", "message": {"model": "m", "usage": {}}}), state
+        )
+        await tee._inspect(
+            frame(
+                "message",
+                {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "  "}},
+            ),
+            state,
+        )
+        self.assertIsNone(state.first_text_ms)
+        await tee._inspect(
+            frame(
+                "message",
+                {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "你好"}},
+            ),
+            state,
+        )
+        self.assertIsNotNone(state.first_text_ms)
+        await tee._inspect(frame("message", {"type": "message_stop"}), state)
+        completed = [item for item in self.writer.appended if item["type"] == "model.completed"]
+        self.assertEqual(len(completed), 1)
+        self.assertIn("firstTextMs", completed[0]["payload"])
+
+    async def test_no_text_stream_omits_first_text(self):
+        state = tee._TapState()
+        await tee._inspect(
+            frame("message", {"type": "message_start", "message": {"model": "m", "usage": {}}}), state
+        )
+        await tee._inspect(
+            frame(
+                "message",
+                {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "t"}},
+            ),
+            state,
+        )
+        await tee._inspect(frame("message", {"type": "message_stop"}), state)
+        completed = [item for item in self.writer.appended if item["type"] == "model.completed"]
+        self.assertNotIn("firstTextMs", completed[0]["payload"])
+
+    async def test_capture_failure_marks_once_and_persists(self):
+        await capture_failure(self.run, "malformed_message")
+        self.assertTrue(self.run.degraded)
+        self.assertEqual(self.run.dropped, 1)
+        self.assertEqual(self.writer.degraded, [("run", "malformed_message")])
+        # Degradation stays sticky, and each observed failure is counted once.
+        await capture_failure(self.run, "inspection_error")
+        self.assertEqual(self.run.dropped, 2)
+        self.assertEqual(self.run.capture_error, "malformed_message")
 
 
 class WriterTest(unittest.IsolatedAsyncioTestCase):

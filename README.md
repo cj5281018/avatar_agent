@@ -101,7 +101,7 @@ The panel reports three independent facts, because they can disagree:
 |---|---|---|
 | Turn execution | running / ended / failed / cancelled / stale | whether the answer finished; `stale` means running with no heartbeat for 2 minutes |
 | Capture health | ok / degraded / unknown | whether every observed step was stored; once degraded, later writes cannot restore it |
-| Record integrity | ok / mismatch / truncated / unsealed / running | whether the stored events, the chain head and the seal still agree |
+| Record integrity | ok / mismatch / truncated / not_sealed / unverifiable / running | whether the stored events, the chain head and the seal still agree; `unverifiable` means sealed at write time but this verifier has no key, `not_sealed` means the record was written without a seal |
 
 A run whose process died mid-answer keeps `status = running`; the reader uses
 the last successfully written event as a heartbeat and downgrades it to
@@ -145,9 +145,28 @@ directly for fixtures:
     node scripts/trace/resilience.cjs
     # tamper, truncation, missing seal key, afterSeq contract
     node scripts/trace/integrity-fixtures.cjs
+    # first-snapshot/incremental recovery, cancellation, stale recovery
+    node scripts/trace/resilience2.cjs
+    # cursor/events/state/seal read from one snapshot (R5)
+    node scripts/trace/consistency.cjs
+    # step-level business association for two drafts in one run (R6)
+    node scripts/trace/business-drafts.cjs
+    # seal states not_sealed / running / ok / truncated in API and page (R7)
+    node scripts/trace/seal-states.cjs
     # with AVATAR2_TRACE_FAULT_EVENT set on the AI service
     node scripts/trace/capture-fault.cjs turn
     node scripts/trace/capture-fault.cjs check   # after a restart, with FAULT_RUN_ID/FAULT_CHAT_ID
+
+`scripts/trace/fixtures.py` is piped into the AI container
+(`docker exec -i avatar2-source-ai-1 python - <subcommand>`) to create
+controlled runs: two real drafts in one run with a decoy operation id, a
+running run, a stale run, a record written without a seal, a malformed-frame
+run, and a leak-marker sanitisation run. These are test records and are labelled
+as such by their fixture model name.
+
+Note: the HR service de-duplicates by requester + dates + leave type + reason,
+so acceptance runs must use dates that were not used before; otherwise HR
+returns the existing request and the new operation is linked to it.
 
 They need Node with Playwright (`NODE_PATH` to a directory containing
 `playwright-core`) and these variables: `BASE`, `MODEL_ID`,

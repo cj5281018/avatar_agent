@@ -16,8 +16,13 @@ export function executionState(run: TraceRunSummary, now = Date.now()): Executio
     return now - new Date(heartbeat).getTime() > STALE_HEARTBEAT_MS ? 'stale' : 'running'
 }
 
+/**
+ * `stale` means only "no heartbeat recently": a slow model or tool may still
+ * finish, so the panel keeps reading (at a lower rate) until a real terminal
+ * state arrives.
+ */
 export function isTerminal(state: ExecutionState): boolean {
-    return state !== 'running'
+    return state === 'completed' || state === 'failed' || state === 'cancelled' || state === 'interrupted'
 }
 
 export function iso(value: Date | string | null): string | null {

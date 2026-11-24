@@ -117,17 +117,83 @@ export async function listEvents(runId: string, afterSeq = 0): Promise<TraceEven
     }))
 }
 
-/** Most recent business operation id recorded in a run, if any. */
-export async function findOperationId(runId: string): Promise<string | null> {
+/** Drafting steps of a run: the HR preview calls that actually produced a draft. */
+export type DraftStep = { spanId: string; operationId: string; seq: number }
+
+export async function listDraftSteps(runId: string): Promise<DraftStep[]> {
     const rows = await db.execute(sql`
-        SELECT payload->>'operationId' AS operation_id
+        SELECT span_id, payload->>'operationId' AS operation_id, seq
         FROM agent_trace_events
-        WHERE run_id = ${runId} AND payload ? 'operationId'
-        ORDER BY seq DESC
-        LIMIT 1
+        WHERE run_id = ${runId}
+          AND type = 'tool.completed'
+          AND payload->>'tool' = 'hr_preview_leave'
+          AND payload->>'status' = 'ok'
+          AND payload ? 'operationId'
+        ORDER BY seq ASC
+    `)
+    const seen = new Set<string>()
+    const drafts: DraftStep[] = []
+    for (const row of rows as Record<string, unknown>[]) {
+        const operationId = row.operation_id as string
+        if (seen.has(operationId)) continue
+        seen.add(operationId)
+        drafts.push({ spanId: row.span_id as string, operationId, seq: Number(row.seq) })
+    }
+    return drafts
+}
+
+function mapEventJson(raw: Record<string, unknown>): TraceEventRow {
+    return {
+        runId: raw.run_id as string,
+        seq: Number(raw.seq),
+        eventId: raw.event_id as string,
+        spanId: raw.span_id as string,
+        parentSpanId: (raw.parent_span_id as string | null) ?? null,
+        type: raw.type as string,
+        ts: raw.ts as string,
+        payload: (raw.payload as Record<string, unknown>) ?? {},
+        previousDigest: (raw.previous_digest as string | null) ?? null,
+        digest: raw.digest as string,
+    }
+}
+
+/**
+ * Reads the run row and its events from one statement, so the cursor, the
+ * events it covers, the head digest and the seal all belong to the same
+ * snapshot even while the writer is appending.
+ */
+export async function getSnapshot(
+    chatId: string,
+    runId: string,
+): Promise<{ run: TraceRunSummary; events: TraceEventRow[] } | null> {
+    const rows = await db.execute(sql`
+        SELECT row_to_json(r) AS run_json,
+               COALESCE(
+                   json_agg(e ORDER BY e.seq) FILTER (WHERE e.seq IS NOT NULL),
+                   '[]'::json
+               ) AS events_json,
+               c.title AS chat_title,
+               LEFT(COALESCE(m.content_text, ''), 200) AS message_text
+        FROM agent_trace_runs r
+        LEFT JOIN chats c ON c.id = r.chat_id
+        LEFT JOIN chat_messages m ON m.id = r.user_message_id
+        LEFT JOIN agent_trace_events e ON e.run_id = r.run_id
+        WHERE r.run_id = ${runId} AND r.chat_id = ${chatId}
+        GROUP BY r.run_id, c.title, m.content_text
     `)
     const row = (rows as Record<string, unknown>[])[0]
-    return (row?.operation_id as string | null) ?? null
+    if (!row) return null
+    const rawRun = row.run_json as Record<string, unknown>
+    const events = (row.events_json as Record<string, unknown>[]).map(mapEventJson)
+    const run = mapRun({
+        ...rawRun,
+        chat_id: rawRun.chat_id,
+        chat_title: row.chat_title,
+        message_text: row.message_text,
+        steps: events.length,
+        tool_error: events.some((event) => event.type === 'tool.failed'),
+    })
+    return { run, events }
 }
 
 /** Recent runs across all of a person's chats, for the trace centre list. */

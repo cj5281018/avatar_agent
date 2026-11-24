@@ -3,8 +3,11 @@
 The agent loop in ``streaming/generate.py`` is left untouched. Instead the
 router wraps the stream it already receives with an async generator that reads
 the SSE frames the loop emits, records one span per provider call, and closes
-the run when the stream ends. That keeps the harness' iteration order, retries
-and cancellation behaviour exactly as they were.
+the run when the stream ends.
+
+Anything observed that *should* have been recorded but could not be parsed or
+persisted marks the run as capture-degraded immediately. Protocol frames the
+tap does not care about are ignored, so a healthy run stays healthy.
 """
 
 from __future__ import annotations
@@ -15,15 +18,23 @@ import logging
 import time
 from typing import Any, AsyncIterator
 
-from streaming.persist import sse_event_data, sse_event_type
+from tracing.sse import sse_event_data, sse_event_type
 
 from tracing.context import ActiveRun, bind_run, reset_run, set_model_span
-from tracing.recorder import emit
-from tracing.writer import build_writer, new_id, utc_now
+from tracing.recorder import capture_failure, emit
+from tracing.writer import build_writer, new_id
 
 logger = logging.getLogger(__name__)
 
 _NON_TERMINAL_FAILURES = {"stream_error", "save_error"}
+
+
+class TapFailure(RuntimeError):
+    """Data was expected to be recorded but could not be interpreted."""
+
+    def __init__(self, category: str) -> None:
+        super().__init__(category)
+        self.category = category
 
 
 class _TapState:
@@ -57,7 +68,8 @@ async def _close_model_span(state: _TapState, *, status: str = "ok") -> None:
         "status": status,
         "callIndex": state.model_calls,
     }
-    # Only measured when the provider actually streamed text; never inferred.
+    # Only measured when the provider streamed text that could actually be
+    # shown; an empty delta is not "first visible text".
     if state.first_text_ms is not None:
         payload["firstTextMs"] = state.first_text_ms
     await emit(
@@ -77,35 +89,52 @@ def _usage_totals(message: Any) -> tuple[int, int]:
     return int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
 
 
+def _parse_message_frame(raw: str) -> dict[str, Any]:
+    data_text = sse_event_data(raw)
+    if not data_text:
+        raise TapFailure("malformed_message")
+    try:
+        event = json.loads(data_text)
+    except ValueError as exc:
+        raise TapFailure("malformed_message") from exc
+    if not isinstance(event, dict):
+        raise TapFailure("malformed_message")
+    return event
+
+
 async def _inspect(raw: str, state: _TapState) -> None:
+    """Record one frame. Raises ``TapFailure`` when data cannot be interpreted."""
     kind = sse_event_type(raw)
     data_text = sse_event_data(raw)
 
     if kind in _NON_TERMINAL_FAILURES:
-        try:
-            payload = json.loads(data_text)
-        except ValueError:
-            payload = {}
-        message = payload.get("message") if isinstance(payload, dict) else None
-        state.stream_error = str(message or "stream failed")[:300]
+        if data_text:
+            try:
+                payload = json.loads(data_text)
+                if not isinstance(payload, dict):
+                    raise TapFailure("malformed_error")
+            except ValueError as exc:
+                raise TapFailure("malformed_error") from exc
         await _close_model_span(state, status="error")
-        await emit("run.error", {"message": state.stream_error})
+        # The provider's raw message is not stored: it can echo upstream
+        # response bodies. The category plus the user-visible label is enough.
+        state.stream_error = "model_stream_error"
+        await emit("run.error", {"reasonCode": "model_stream_error"})
         return
 
-    if kind != "message" or not data_text:
+    if kind != "message":
+        # steering, save_message, compaction, end_of_stream and other protocol
+        # frames are not trace steps; observing them is expected.
         return
 
-    try:
-        event = json.loads(data_text)
-    except ValueError:
-        return
-    if not isinstance(event, dict):
-        return
-
+    event = _parse_message_frame(raw)
     event_type = event.get("type")
+
     if event_type == "message_start":
         message = event.get("message") or {}
-        state.model_name = message.get("model") if isinstance(message, dict) else None
+        if not isinstance(message, dict):
+            raise TapFailure("malformed_message_start")
+        state.model_name = message.get("model") if isinstance(message.get("model"), str) else None
         state.model_span = new_id()
         state.model_started_at = time.monotonic()
         state.model_calls += 1
@@ -117,23 +146,22 @@ async def _inspect(raw: str, state: _TapState) -> None:
             {"model": state.model_name, "callIndex": state.model_calls},
             span_id=state.model_span,
         )
-    elif event_type == "content_block_delta":
-        delta = event.get("delta") or {}
-        if (
-            isinstance(delta, dict)
-            and delta.get("type") == "text_delta"
-            and state.first_text_ms is None
-            and state.model_started_at is not None
-        ):
-            state.first_text_ms = int((time.monotonic() - state.model_started_at) * 1000)
-    elif event_type == "message_delta":
-        usage = event.get("usage") or {}
-        if isinstance(usage, dict):
-            state.output_tokens = int(usage.get("output_tokens") or state.output_tokens)
     elif event_type == "content_block_start":
         block = event.get("content_block") or {}
         if isinstance(block, dict) and block.get("type") == "tool_use":
             state.tool_requests += 1
+    elif event_type == "content_block_delta":
+        delta = event.get("delta") or {}
+        if not isinstance(delta, dict):
+            raise TapFailure("malformed_delta")
+        if state.first_text_ms is None and state.model_started_at is not None:
+            text = delta.get("text")
+            if delta.get("type") == "text_delta" and isinstance(text, str) and text.strip():
+                state.first_text_ms = int((time.monotonic() - state.model_started_at) * 1000)
+    elif event_type == "message_delta":
+        usage = event.get("usage") or {}
+        if isinstance(usage, dict):
+            state.output_tokens = int(usage.get("output_tokens") or state.output_tokens)
     elif event_type == "message_stop":
         await _close_model_span(state, status="ok")
 
@@ -184,26 +212,36 @@ async def traced_turn(
         async for chunk in stream:
             try:
                 await _inspect(chunk, state)
+            except TapFailure as failure:
+                await capture_failure(run, failure.category)
             except Exception:
                 logger.exception("Trace tap failed to inspect an event")
+                await capture_failure(run, "inspection_error")
             yield chunk
 
         if state.stream_error:
             status = "failed"
-            error_code = "stream_error"
+            error_code = state.stream_error
     except asyncio.CancelledError:
         status = "cancelled"
         raise
     except Exception as exc:
         status = "failed"
-        error_code = type(exc).__name__
+        error_code = exc.__class__.__name__
+        # Never store the raw exception text: it can contain upstream bodies.
         await _emit_safely(
             "run.error",
-            {"message": str(exc)[:300]},
+            {"reasonCode": "turn_error", "errorCode": exc.__class__.__name__},
             span_id=run.run_id,
         )
         raise
     finally:
+        # Make sure a model span interrupted by an error is closed rather than
+        # left dangling, so the tree shows an honest failed step.
+        try:
+            await _close_model_span(state, status="error")
+        except Exception:
+            logger.exception("Trace tap could not close the model span")
         await _emit_safely(
             "run.finished",
             {
@@ -236,4 +274,4 @@ async def _emit_safely(type: str, payload: dict[str, Any], *, span_id: str) -> N
         logger.exception("Trace event %s could not be emitted", type)
 
 
-__all__ = ["traced_turn", "utc_now"]
+__all__ = ["TapFailure", "traced_turn"]
