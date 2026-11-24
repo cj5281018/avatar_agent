@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from actions import install_actions
 from bindings import EmployeeBindings
+from plugins import DepartmentPlugin, PluginAction, build_catalog
 from avatar_service.db import Store, digest, now, uid
 from avatar_service.hr_bridge import HrBridge
 from avatar_service.leave_confirmation import LEAVE_TYPES, validate_leave
@@ -27,12 +28,62 @@ class LeaveInput(BaseModel):
 leave_schema = LeaveInput.model_json_schema()
 leave_schema["properties"]["leaveType"]["enum"] = sorted(LEAVE_TYPES)
 leave_schema["properties"]["leaveType"]["description"] = "Use annual for 年假."
-TOOLS = [
-    {"name": "hr_list_my_requests", "description": "查询当前员工的请假申请",
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    {"name": "hr_preview_leave", "description": "预览请假日期、假别和事由，返回待员工核对的内容",
-     "inputSchema": leave_schema},
-]
+HR_PLUGIN = DepartmentPlugin(
+    id="hr",
+    display_name="人力资源",
+    version="1.0.0",
+    web_entry="/me",
+    actions=(
+        PluginAction(
+            id="preview_leave",
+            tool="hr_preview_leave",
+            description="预览请假日期、假别和事由，返回待员工核对的内容",
+            input_schema=leave_schema,
+            handler="gateway.hr.preview_leave",
+            read_only=True,
+            summary_fields=("startDate", "endDate", "leaveType"),
+        ),
+        PluginAction(
+            id="list_my_requests",
+            tool="hr_list_my_requests",
+            description="查询当前员工的请假申请",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler="gateway.hr.list_my_requests",
+            read_only=True,
+            summary_fields=("id", "status"),
+        ),
+    ),
+)
+
+TEST_PLUGIN = DepartmentPlugin(
+    id="testkit",
+    display_name="接入测试",
+    version="0.0.1",
+    actions=(
+        PluginAction(
+            id="echo",
+            tool="testkit_echo",
+            description="仅用于接入测试的只读回显，不返回任何业务数据",
+            input_schema={
+                "type": "object",
+                "properties": {"message": {"type": "string", "description": "回显文本"}},
+                "additionalProperties": False,
+            },
+            handler="testkit.echo",
+            read_only=True,
+        ),
+    ),
+)
+
+
+def _catalog():
+    plugins = [HR_PLUGIN]
+    if os.environ.get("AVATAR2_ENABLE_TEST_PLUGIN", "").strip() == "1":
+        plugins.append(TEST_PLUGIN)
+    return build_catalog(plugins)
+
+
+CATALOG = _catalog()
 
 
 def create_app(directory=None):
@@ -107,7 +158,7 @@ def create_app(directory=None):
         elif method == "ping":
             result = {}
         elif method == "tools/list":
-            result = {"tools": [{**tool, "annotations": {"readOnlyHint": True}} for tool in TOOLS]}
+            result = {"tools": CATALOG.tools()}
         elif method in ("resources/list", "resources/templates/list", "prompts/list"):
             result = {{"resources/list": "resources", "resources/templates/list": "resourceTemplates",
                        "prompts/list": "prompts"}[method]: []}
@@ -115,11 +166,21 @@ def create_app(directory=None):
             if auth is None:
                 raise HTTPException(403, "工具执行需要个人凭据")
             name, arguments = params.get("name"), params.get("arguments", {})
+            route = CATALOG.route(name) if isinstance(name, str) else None
             try:
-                if name == "hr_preview_leave" and isinstance(arguments, dict):
+                if route is None or not isinstance(arguments, dict):
+                    raise HTTPException(400, "未知工具或参数不正确")
+                plugin, action = route
+                if plugin.id == "hr" and action.id == "preview_leave":
                     data = {"type": "leave_preview", "input": validate_leave(arguments)}
-                elif name == "hr_list_my_requests" and arguments == {}:
+                elif plugin.id == "hr" and action.id == "list_my_requests" and arguments == {}:
                     data = (await bridge.invoke("list_my_requests", {}, auth[1], "", uid("srq")))["data"]
+                elif plugin.id == "testkit" and action.id == "echo":
+                    message = arguments.get("message", "")
+                    if not isinstance(message, str):
+                        raise HTTPException(400, "参数不正确")
+                    data = {"type": "echo", "department": "testkit", "action": "echo",
+                            "pluginVersion": plugin.version, "message": message[:100]}
                 else:
                     raise HTTPException(400, "未知工具或参数不正确")
                 result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]}
@@ -131,7 +192,15 @@ def create_app(directory=None):
 
     from cards import install_cards
     install_cards(app, bridge, authenticate)
-    install_actions(app, bridge, TOOLS)
+    install_actions(app, bridge, CATALOG.tools(), CATALOG)
+
+    @app.get("/internal/plugins")
+    def plugins(authorization: str = Header(default="")):
+        secret = os.environ.get("AVATAR2_INTERNAL_TOKEN", "")
+        if not secret or not compare_digest(authorization.encode(), ("Bearer " + secret).encode()):
+            raise HTTPException(401, "服务凭据无效")
+        return {"plugins": CATALOG.describe()}
+
     return app
 
 

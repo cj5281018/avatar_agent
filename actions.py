@@ -33,7 +33,7 @@ class ToolRequest(EmployeeRequest):
     chat_id: WorkbenchUser
 
 
-def install_actions(app, bridge, tools):
+def install_actions(app, bridge, tools, catalog=None):
     def authorize(request: Request, authorization: str = Header(default="")):
         secret = os.environ.get("AVATAR2_INTERNAL_TOKEN", "")
         if not secret or not compare_digest(authorization.encode(), ("Bearer " + secret).encode()):
@@ -100,7 +100,11 @@ def install_actions(app, bridge, tools):
     @app.post("/internal/tools/call")
     async def call_tool(body: ToolRequest, bindings=Depends(authorize)):
         employee, key = bindings.resolve(body.user_id)
-        if body.name == "hr_preview_leave":
+        route = catalog.route(body.name) if catalog is not None else None
+        if route is None:
+            raise HTTPException(400, "未知工具或参数不正确")
+        plugin, action = route
+        if plugin.id == "hr" and action.id == "preview_leave":
             fields = validate_leave(body.arguments)
             with bridge.store.open() as db:
                 db.execute(
@@ -109,8 +113,14 @@ def install_actions(app, bridge, tools):
                 )
             item = bridge.confirmations.propose(Turn(body.chat_id, employee["id"], key), fields)
             return {"type": "leave_preview", **item}
-        if body.name == "hr_list_my_requests" and not body.arguments:
+        if plugin.id == "hr" and action.id == "list_my_requests" and not body.arguments:
             return (await bridge.invoke("list_my_requests", {}, key, "", uid("srq")))["data"]
+        if plugin.id == "testkit" and action.id == "echo":
+            message = body.arguments.get("message", "")
+            if not isinstance(message, str):
+                raise HTTPException(400, "参数不正确")
+            return {"type": "echo", "department": "testkit", "action": "echo",
+                    "pluginVersion": plugin.version, "message": message[:100]}
         raise HTTPException(400, "未知工具或参数不正确")
 
     @app.post("/internal/cards/{session}/{operation}/{action}")
