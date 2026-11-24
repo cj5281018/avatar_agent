@@ -605,6 +605,14 @@
         void loadTraces()
     })
 
+    $effect(() => {
+        // While a turn is running, pick up the run and its growing step list so
+        // the entry shows progress instead of appearing only at the end.
+        if (!isStreaming) return
+        const timer = setInterval(() => void loadTraces(), 2500)
+        return () => clearInterval(timer)
+    })
+
     // Artifact side-pane state. Panel-mode artifacts (everything that is not an
     // image) are collected across the conversation; chips in the message rows
     // and the pane itself share this single registry.

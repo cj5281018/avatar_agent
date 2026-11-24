@@ -77,6 +77,20 @@
         }
     })
 
+    $effect(() => {
+        // A run that is still executing keeps growing; poll until it finishes.
+        if (!detail || detail.run.status !== 'running') return
+        const timer = setTimeout(async () => {
+            try {
+                const response = await fetch(`/api/chat/${chatId}/runs/${runId}`)
+                if (response.ok) detail = await response.json()
+            } catch {
+                // Keep the last successful snapshot.
+            }
+        }, 2000)
+        return () => clearTimeout(timer)
+    })
+
     function number(value: unknown): number | null {
         return typeof value === 'number' && Number.isFinite(value) ? value : null
     }
