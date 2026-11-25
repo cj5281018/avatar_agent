@@ -371,7 +371,7 @@
                                     <div class="border-t pt-3">
                                         {#if driveConfig.index_scope === 'pending'}
                                             <p class="text-muted-foreground mb-2 text-xs">
-                                                Choose which Drive folders Omni may index to finish
+                                                Choose which Drive folders Avatar may index to finish
                                                 setup.
                                             </p>
                                         {:else if driveConfig.index_scope === 'selected'}
@@ -512,7 +512,7 @@
         <Dialog.Header>
             <Dialog.Title>Choose Google Drive folders</Dialog.Title>
             <Dialog.Description>
-                Omni will only index files inside the folders you select. Google still grants the
+                Avatar will only index files inside the folders you select. Google still grants the
                 read-only Drive permission required to browse your account.
             </Dialog.Description>
         </Dialog.Header>

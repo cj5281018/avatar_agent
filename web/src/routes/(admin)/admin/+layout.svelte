@@ -28,11 +28,11 @@
                 <a href="/" class="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
                     <img
                         src={themeStore.current.omniLogoLight}
-                        alt="Omni logo"
+                        alt="Avatar logo"
                         class="omni-logo-light h-6 w-6 rounded-sm" />
                     <img
                         src={themeStore.current.omniLogoDark}
-                        alt="Omni logo"
+                        alt="Avatar logo"
                         class="omni-logo-dark h-6 w-6 rounded-sm" />
                     <h1 class="text-foreground text-xl font-bold">{themeStore.current.omniName}</h1>
                 </a>

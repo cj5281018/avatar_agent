@@ -173,3 +173,22 @@ They need Node with Playwright (`NODE_PATH` to a directory containing
 `BOB_EMAIL/PASSWORD`, `ALICE_EMAIL/PASSWORD`, `ADMIN_EMAIL/PASSWORD`. The
 scripts never print or store credentials, and the damaged runs they create are
 clearly labelled test records.
+
+## Independent HR pages and single sign-on
+
+Employees and assigned supervisors open the HR service's own pages without a
+second password:
+
+- Avatar checks the signed-in user and their HR binding, then issues a ticket
+  valid for 60 seconds and one redemption (`POST /internal/hr/web-ticket`).
+- The HR service redeems it atomically (`/web/ticket`), sets a personal
+  `hr_personal` cookie session, and opens `/web/me` or `/web/approvals`.
+- Every page and every approval re-validates the Avatar binding
+  (`/internal/hr/web-session`), so unbinding or expiry blocks an open page.
+- The admin console keeps its own cookie and is not used for personal pages.
+- The workbench leave card has "在 HR 中查看"; the 员工服务 page has
+  "我的待审批（HR）". The global "请假审批" menu entry was removed.
+
+Set `AVATAR2_HR_WEB_URL` (default `http://localhost:8892`) and publish the HR
+service on that port. Tickets and business credentials are never written to the
+trace, logs or the final URL.

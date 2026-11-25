@@ -45,7 +45,7 @@
 </script>
 
 <svelte:head>
-    <title>Document Conversion - Settings - Omni</title>
+    <title>Document Conversion - Settings - Avatar</title>
 </svelte:head>
 
 <div class="h-full overflow-y-auto p-6 py-8 pb-24">

@@ -321,7 +321,7 @@
                     <div>
                         <h2 class="text-xl font-semibold">Organization Integrations</h2>
                         <p class="text-muted-foreground text-sm">
-                            Org-level sources connected to Omni. Sync-enabled sources are indexed;
+                            Org-level sources connected to Avatar. Sync-enabled sources are indexed;
                             MCP-only sources expose live agent actions without indexing data.
                         </p>
                     </div>
@@ -560,7 +560,7 @@
                                     Windshift
                                 </CardTitle>
                                 <CardDescription>
-                                    Base URL of the Windshift instance Omni talks to. OAuth client
+                                    Base URL of the Windshift instance Avatar talks to. OAuth client
                                     registration is automatic (DCR + PKCE); there is no client
                                     secret to configure.
                                 </CardDescription>
@@ -605,7 +605,7 @@
                     <div>
                         <h2 class="text-xl font-semibold">Available Integrations</h2>
                         <p class="text-muted-foreground text-sm">
-                            Connect apps at the organization level to sync shared data with Omni
+                            Connect apps at the organization level to sync shared data with Avatar
                         </p>
                     </div>
 

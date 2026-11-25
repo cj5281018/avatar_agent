@@ -177,7 +177,7 @@
     }
 </script>
 
-<svelte:head><title>Projects · Omni</title></svelte:head>
+<svelte:head><title>Projects · Avatar</title></svelte:head>
 
 <div class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-10">
     <div class="mb-8 flex flex-wrap items-center justify-between gap-4">

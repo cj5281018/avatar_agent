@@ -113,7 +113,7 @@
         <Card.Root>
             <Card.Header>
                 <Card.Title>Account</Card.Title>
-                <Card.Description>Your Omni account details.</Card.Description>
+                <Card.Description>Your Avatar account details.</Card.Description>
             </Card.Header>
             <Card.Content class="space-y-4">
                 <div class="grid gap-4 sm:grid-cols-2">
@@ -139,7 +139,7 @@
             <Card.Header>
                 <Card.Title>Preferences</Card.Title>
                 <Card.Description>
-                    These settings control how Omni looks and behaves for you.
+                    These settings control how Avatar looks and behaves for you.
                 </Card.Description>
             </Card.Header>
             <Card.Content class="space-y-6">
@@ -206,7 +206,7 @@
 
                     {#if !data.timezoneSaved}
                         <p class="text-muted-foreground text-sm">
-                            Your browser timezone was not saved yet. Omni is currently using UTC as
+                            Your browser timezone was not saved yet. Avatar is currently using UTC as
                             a fallback until a timezone is saved.
                         </p>
                     {/if}

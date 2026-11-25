@@ -353,7 +353,7 @@
             <div>
                 <h1 class="text-3xl font-semibold tracking-tight">LLM Providers</h1>
                 <p class="text-muted-foreground mt-2 text-base">
-                    Manage the providers and models Omni can use.
+                    Manage the providers and models Avatar can use.
                 </p>
             </div>
             <Button onclick={openProviderPicker} class="cursor-pointer gap-2 sm:mt-1">

@@ -69,7 +69,7 @@
 </script>
 
 <svelte:head>
-    <title>Authentication - Settings - Omni</title>
+    <title>Authentication - Settings - Avatar</title>
 </svelte:head>
 
 <div class="h-full overflow-y-auto p-6 py-8 pb-24">
@@ -77,7 +77,7 @@
         <div>
             <h1 class="text-3xl font-bold tracking-tight">Authentication</h1>
             <p class="text-muted-foreground mt-2">
-                Configure how users sign in to your Omni instance.
+                Configure how users sign in to your Avatar instance.
             </p>
         </div>
 

@@ -18,7 +18,7 @@ type TitleEvent = {
     title: string
 }
 
-/** An Omni extension of the SDK SearchResultBlockParam that includes the
+/** An Avatar extension of the SDK SearchResultBlockParam that includes the
  *  internal source_type field, which the AI service attaches for rendering
  *  but strips before forwarding to external LLM APIs. */
 type OmniSearchResultBlockParam = SearchResultBlockParam & {

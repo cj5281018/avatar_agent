@@ -323,7 +323,7 @@
                 </div>
             {:else}
                 <div class="text-muted-foreground mt-1">
-                    Authorize your ClickUp account to let Omni read ClickUp MCP resources and use
+                    Authorize your ClickUp account to let Avatar read ClickUp MCP resources and use
                     ClickUp actions in chat and agents.
                 </div>
             {/if}
@@ -339,7 +339,7 @@
                     Include write permissions
                 </Label>
                 <p class="text-muted-foreground text-sm">
-                    Leave unchecked for read-only access. Check this to allow Omni to create or
+                    Leave unchecked for read-only access. Check this to allow Avatar to create or
                     update ClickUp tasks, comments, docs, time entries, and other writable objects
                     as you.
                 </p>

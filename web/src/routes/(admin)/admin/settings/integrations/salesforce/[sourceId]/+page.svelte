@@ -224,7 +224,7 @@
                     User OAuth
                 </Card.Title>
                 <Card.Description class="mt-1">
-                    External Client App credentials used when individual Omni users authorize
+                    External Client App credentials used when individual Avatar users authorize
                     Salesforce native actions. Stored for this source only; never shared with other
                     Salesforce orgs.
                 </Card.Description>

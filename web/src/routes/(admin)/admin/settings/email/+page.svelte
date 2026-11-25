@@ -483,7 +483,7 @@
                                 id="fromEmail"
                                 name="fromEmail"
                                 bind:value={formState.fromEmail}
-                                placeholder="Omni <noreply@yourdomain.com>"
+                                placeholder="Avatar <noreply@yourdomain.com>"
                                 required />
                         </div>
                     {/if}
@@ -550,7 +550,7 @@
                                 id="fromEmail"
                                 name="fromEmail"
                                 bind:value={formState.fromEmail}
-                                placeholder="Omni <noreply@yourdomain.com>"
+                                placeholder="Avatar <noreply@yourdomain.com>"
                                 required />
                         </div>
                     {/if}

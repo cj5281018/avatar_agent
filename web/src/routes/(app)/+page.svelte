@@ -192,7 +192,7 @@
 </script>
 
 <svelte:head>
-    <title>Omni - Enterprise Search</title>
+    <title>Avatar</title>
 </svelte:head>
 
 <div class="container mx-auto px-4">
@@ -201,11 +201,11 @@
         <div class="mb-6 flex items-center gap-2 text-center">
             <img
                 src={themeStore.current.omniLogoLight}
-                alt="Omni logo"
+                alt="Avatar logo"
                 class="omni-logo-light h-8 w-8 rounded-lg" />
             <img
                 src={themeStore.current.omniLogoDark}
-                alt="Omni logo"
+                alt="Avatar logo"
                 class="omni-logo-dark h-8 w-8 rounded-lg" />
             <h1 class="text-foreground text-3xl font-bold">omni</h1>
         </div>

@@ -101,7 +101,7 @@
             </label>
 
             <p class="text-muted-foreground text-xs">
-                Only your own data will be synced. Omni will have read-only access.
+                Only your own data will be synced. Avatar will have read-only access.
             </p>
         </div>
 

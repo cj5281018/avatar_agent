@@ -162,7 +162,7 @@
                 <div>
                     <h3 class="text-sm font-semibold">Instructions</h3>
                     <p class="text-muted-foreground mt-1 text-xs">
-                        Guide how Omni responds in every chat.
+                        Guide how Avatar responds in every chat.
                     </p>
                 </div>
                 <Button
@@ -269,7 +269,7 @@
     </div>
 {/snippet}
 
-<svelte:head><title>{data.project.name} · Projects · Omni</title></svelte:head>
+<svelte:head><title>{data.project.name} · Projects · Avatar</title></svelte:head>
 
 <div class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-10">
     <div class="mb-8 flex items-center justify-between gap-4">
@@ -411,7 +411,7 @@
         <Dialog.Header>
             <Dialog.Title>Project instructions</Dialog.Title>
             <Dialog.Description>
-                Set the direction once. Omni will use these instructions in every chat in {data
+                Set the direction once. Avatar will use these instructions in every chat in {data
                     .project.name}.
             </Dialog.Description>
         </Dialog.Header>

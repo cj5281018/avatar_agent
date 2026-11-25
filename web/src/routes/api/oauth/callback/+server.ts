@@ -231,7 +231,7 @@ export const GET: RequestHandler = async ({ url, locals, fetch }) => {
                 ...(typeof userinfo === 'object' && userinfo !== null && !Array.isArray(userinfo)
                     ? (userinfo as Record<string, unknown>)
                     : {}),
-                // This value comes from the authenticated Omni session, not
+                // This value comes from the authenticated Avatar session, not
                 // from provider-controlled OAuth claims.
                 omni_user_email: user.email,
             },

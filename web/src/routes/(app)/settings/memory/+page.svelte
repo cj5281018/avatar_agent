@@ -47,7 +47,7 @@
         {
             value: 'off',
             label: 'Off',
-            description: 'Omni will not remember anything between sessions.',
+            description: 'Avatar will not remember anything between sessions.',
             rank: 0,
         },
         {
@@ -82,7 +82,7 @@
         <div>
             <h1 class="text-3xl font-bold tracking-tight">Memory</h1>
             <p class="text-muted-foreground mt-2">
-                Control what Omni remembers about you across sessions.
+                Control what Avatar remembers about you across sessions.
             </p>
         </div>
 
@@ -90,7 +90,7 @@
             <Card.Header>
                 <Card.Title>Memory mode</Card.Title>
                 <Card.Description>
-                    Choose how much context Omni retains between sessions.
+                    Choose how much context Avatar retains between sessions.
                 </Card.Description>
             </Card.Header>
             <Card.Content>
@@ -185,7 +185,7 @@
             <Card.Header>
                 <Card.Title>Stored memories</Card.Title>
                 <Card.Description>
-                    Everything Omni currently remembers about you. Delete anything you do not want
+                    Everything Avatar currently remembers about you. Delete anything you do not want
                     retained.
                 </Card.Description>
             </Card.Header>
@@ -207,7 +207,7 @@
                             use:enhance={({ cancel }) => {
                                 if (
                                     !confirm(
-                                        'Delete every memory Omni has about you? This cannot be undone.',
+                                        'Delete every memory Avatar has about you? This cannot be undone.',
                                     )
                                 ) {
                                     cancel()

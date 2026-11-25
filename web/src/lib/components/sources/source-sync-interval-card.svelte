@@ -158,7 +158,7 @@
 <Card.Root>
     <Card.Header>
         <Card.Title>Sync Interval</Card.Title>
-        <Card.Description>Choose how often Omni should sync this source</Card.Description>
+        <Card.Description>Choose how often Avatar should sync this source</Card.Description>
     </Card.Header>
     <form
         onsubmit={(event) => {

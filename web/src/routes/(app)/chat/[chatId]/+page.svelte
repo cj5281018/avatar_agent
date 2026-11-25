@@ -1358,7 +1358,7 @@
                                       (b): b is TextBlockParam => b.type === 'text',
                                   )
                                 : []
-                            // First text block may carry an Omni envelope (OAuth- or
+                            // First text block may carry an Avatar envelope (OAuth- or
                             // approval-required prompt). Surface it as a typed UI
                             // variant; if it doesn't parse, fall through to the normal
                             // action-result path.
@@ -2557,7 +2557,7 @@
 </script>
 
 <svelte:head>
-    <title>{data.chat.title} - Omni</title>
+    <title>{data.chat.title} - Avatar</title>
 </svelte:head>
 
 {#snippet branchNavigation(message: ProcessedMessage)}
@@ -3114,11 +3114,11 @@
                                             <div class="space-y-1">
                                                 <div class="text-sm font-medium">
                                                     {#if approvalItems.length === 1}
-                                                        Omni wants to {approvalActionLabel(
+                                                        Avatar wants to {approvalActionLabel(
                                                             pendingApproval.tool_name,
                                                         )}.
                                                     {:else}
-                                                        Omni wants to perform {approvalItems.length}
+                                                        Avatar wants to perform {approvalItems.length}
                                                         actions.
                                                     {/if}
                                                 </div>
@@ -3274,11 +3274,11 @@
                                 <div class="space-y-1">
                                     <div class="text-sm font-medium">
                                         {#if approvalItems.length === 1}
-                                            Omni wants to {approvalActionLabel(
+                                            Avatar wants to {approvalActionLabel(
                                                 pendingApproval.tool_name,
                                             )}.
                                         {:else}
-                                            Omni wants to perform {approvalItems.length} actions.
+                                            Avatar wants to perform {approvalItems.length} actions.
                                         {/if}
                                     </div>
                                     <p class="text-muted-foreground text-xs">

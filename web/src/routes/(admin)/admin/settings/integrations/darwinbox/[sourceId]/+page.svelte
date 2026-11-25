@@ -32,7 +32,7 @@
     <Card.Root
         ><Card.Header
             ><Card.Title>{data.source.name}</Card.Title><Card.Description
-                >The dataset key controls which users and fields the Darwinbox API can access; Omni
+                >The dataset key controls which users and fields the Darwinbox API can access; Avatar
                 indexes whatever the provider allows and skips denied modules.</Card.Description
             ></Card.Header>
         <Card.Content class="space-y-5">

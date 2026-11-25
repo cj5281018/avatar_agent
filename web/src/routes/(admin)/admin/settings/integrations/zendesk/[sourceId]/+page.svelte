@@ -250,7 +250,7 @@
                             autocomplete="new-password" />
                         <p class="text-muted-foreground text-xs">
                             An OAuth access token for this account with read access, belonging to an
-                            admin. Omni cannot refresh it: when it expires, syncs fail until you
+                            admin. Avatar cannot refresh it: when it expires, syncs fail until you
                             save a new token on the settings page.
                         </p>
                     </div>

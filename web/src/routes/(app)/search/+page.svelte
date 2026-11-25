@@ -213,7 +213,7 @@
 </script>
 
 <svelte:head>
-    <title>Search Results - Omni</title>
+    <title>Search Results - Avatar</title>
 </svelte:head>
 
 <div class="mt-4 px-4 pb-24 sm:px-8">
