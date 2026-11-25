@@ -36,8 +36,22 @@ class Avatar2ToolHandler:
             if reply.status_code == 403:
                 return None
             reply.raise_for_status()
+            catalog = {}
+            try:
+                # The catalog is a GET with service credentials; it carries
+                # trace/approval metadata, not tool protocol definitions.
+                async with httpx.AsyncClient(timeout=20, trust_env=False) as client:
+                    meta_reply = await client.get(
+                        handler.endpoint + "/internal/catalog", headers=handler.headers
+                    )
+                if meta_reply.is_success:
+                    catalog = meta_reply.json().get("tools", {})
+            except (httpx.HTTPError, ValueError):
+                # Without metadata the tools still work; the trace loses the
+                # department attribution and approval falls back to deny.
+                catalog = {}
             for tool in reply.json()["tools"]:
-                metadata = tool.get("x-avatar2") if isinstance(tool, dict) else None
+                metadata = catalog.get(tool["name"]) if isinstance(catalog, dict) else None
                 handler.tools[tool["name"]] = {
                     "name": tool["name"], "description": tool["description"],
                     "input_schema": tool["inputSchema"],
@@ -65,7 +79,15 @@ class Avatar2ToolHandler:
         return allowed
 
     def requires_approval(self, name):
-        return name not in {"hr_list_my_requests", "hr_preview_leave"}
+        policy = (self.tools.get(name) or {}).get("trace", {}).get("policy")
+        if policy == "read":
+            return False
+        if policy == "draft":
+            # A draft only proposes; the employee confirms it outside the model
+            # loop. Exposing it for execution is safe without a tool approval.
+            return False
+        # write, unknown or missing metadata: require approval (deny by default).
+        return True
 
     async def execute(self, name, arguments, context):
         if context.user_id != self.user_id or not self.can_handle(name):
@@ -75,14 +97,28 @@ class Avatar2ToolHandler:
                 "/internal/tools/call", {"name": name, "arguments": arguments, "chat_id": context.chat_id}
             )
             if response.status_code == 403:
-                return self.error("员工绑定不可用，请检查绑定状态")
-            response.raise_for_status()
+                return self.error("员工绑定不可用，请检查绑定状态", code="binding_required")
+            if not response.is_success:
+                code, message = "tool_error", "工具执行失败"
+                try:
+                    detail = response.json().get("detail")
+                    if isinstance(detail, dict) and isinstance(detail.get("errorCode"), str):
+                        code = detail["errorCode"][:40]
+                        if isinstance(detail.get("message"), str):
+                            message = detail["message"][:120]
+                except ValueError:
+                    pass
+                return self.error(message, code=code)
             data = response.json()
             return ToolResult(content=[{"type": "text", "text": json.dumps(data, ensure_ascii=False)}])
         except (httpx.HTTPError, ValueError):
             return self.error("部门工具暂时不可用")
 
     @staticmethod
-    def error(message):
-        return ToolResult(content=[{"type": "text", "text": message}], is_error=True)
+    def error(message, code="tool_error"):
+        payload = {"errorCode": code, "message": message}
+        return ToolResult(
+            content=[{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}],
+            is_error=True,
+        )
 

@@ -1,25 +1,54 @@
-"""Department plugin catalog for the avatar2 action gateway.
+"""Department plugin catalog and action contract for the avatar2 gateway.
 
-A department is a plugin that owns one or more actions. Every action publishes
-one external tool name; the gateway routes a tool call through an explicit
-``tool -> (department, action)`` mapping instead of growing an if/else per
-department. Registration fails loudly on duplicate department ids, duplicate
-action ids inside a department, or duplicate external tool names, so a second
-department can never silently shadow the first.
+A department is a plugin that owns actions. Each action publishes exactly one
+external tool name, declares who triggers it and how it is approved, and carries
+an executable handler. The gateway never grows a branch per department: both the
+MCP entry and the internal tool entry dispatch through the same catalog.
 
-The catalog is metadata only: handlers live with the gateway (HR) or with the
-department service. Adding a department means adding a ``DepartmentPlugin``
-entry and its handler binding - no gateway branch work.
+Registration is atomic and strict. A duplicate department, a duplicate action
+inside a department, a duplicate tool name, a missing handler, or an unknown
+approval policy makes ``build_catalog`` raise before anything is exposed.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable, Literal
+
+logger = logging.getLogger(__name__)
+
+ApprovalPolicy = Literal["read", "draft", "write"]
+POLICIES: set[str] = {"read", "draft", "write"}
 
 
 class CatalogError(ValueError):
-    """Raised when plugin registration would be ambiguous."""
+    """Registration would be ambiguous or unsafe."""
+
+
+class ActionError(Exception):
+    """A structured, user-safe failure raised by an action handler."""
+
+    def __init__(self, code: str, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status = status
+
+
+@dataclass
+class ActionContext:
+    """Everything a handler may use; identity is never taken from arguments."""
+
+    bridge: Any
+    store: Any
+    user_id: str
+    login_key: str
+    chat_id: str | None = None
+    employee: dict[str, Any] | None = None
+
+
+Handler = Callable[[ActionContext, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -28,9 +57,10 @@ class PluginAction:
     tool: str
     description: str
     input_schema: dict[str, Any]
-    handler: str
-    read_only: bool = True
-    # Fields a generic action card may show when summarising a result.
+    handler: Handler
+    # read: no side effects; draft: creates a pending proposal only;
+    # write: changes business state and is never exposed without human action.
+    policy: ApprovalPolicy
     summary_fields: tuple[str, ...] = ()
 
 
@@ -40,8 +70,6 @@ class DepartmentPlugin:
     display_name: str
     version: str
     actions: tuple[PluginAction, ...]
-    # Optional human web entry (department-owned page) reachable from the
-    # workbench; not a sidebar menu.
     web_entry: str | None = None
 
 
@@ -53,45 +81,55 @@ class Catalog:
     def add(self, plugin: DepartmentPlugin) -> None:
         if not plugin.id or plugin.id in self.plugins:
             raise CatalogError(f"duplicate department id: {plugin.id!r}")
+        if not plugin.actions:
+            raise CatalogError(f"department {plugin.id!r} has no actions")
         seen_actions: set[str] = set()
+        staged: dict[str, tuple[DepartmentPlugin, PluginAction]] = {}
         for action in plugin.actions:
             if not action.id or action.id in seen_actions:
                 raise CatalogError(f"duplicate action {action.id!r} in department {plugin.id!r}")
             seen_actions.add(action.id)
-            if action.tool in self._by_tool:
-                owner = self._by_tool[action.tool][0].id
-                raise CatalogError(
-                    f"tool {action.tool!r} already owned by department {owner!r}"
-                )
-            self._by_tool[action.tool] = (plugin, action)
+            if action.tool in self._by_tool or action.tool in staged:
+                owner = (self._by_tool.get(action.tool) or staged[action.tool])[0].id
+                raise CatalogError(f"tool {action.tool!r} already owned by department {owner!r}")
+            if action.policy not in POLICIES:
+                raise CatalogError(f"unknown approval policy {action.policy!r} for {action.tool!r}")
+            if not callable(action.handler):
+                raise CatalogError(f"action {action.tool!r} has no executable handler")
+            staged[action.tool] = (plugin, action)
+        # Commit only after the whole plugin validated.
+        self._by_tool.update(staged)
         self.plugins[plugin.id] = plugin
 
     def route(self, tool_name: str) -> tuple[DepartmentPlugin, PluginAction] | None:
         return self._by_tool.get(tool_name)
 
-    def tools(self) -> list[dict[str, Any]]:
-        """Tool definitions for tools/list, with department metadata attached."""
-        result: list[dict[str, Any]] = []
-        for plugin, action in self._by_tool.values():
-            result.append(
-                {
-                    "name": action.tool,
-                    "description": action.description,
-                    "inputSchema": action.input_schema,
-                    "annotations": {"readOnlyHint": action.read_only},
-                    "x-avatar2": {
-                        "department": plugin.id,
-                        "departmentName": plugin.display_name,
-                        "pluginVersion": plugin.version,
-                        "action": action.id,
-                        "handler": action.handler,
-                        "readOnly": action.read_only,
-                        "summaryFields": list(action.summary_fields),
-                        "webEntry": plugin.web_entry,
-                    },
-                }
-            )
-        return result
+    def protocol_tools(self) -> list[dict[str, Any]]:
+        """Standards-shaped tools for MCP clients; no vendor metadata."""
+        return [
+            {
+                "name": action.tool,
+                "description": action.description,
+                "inputSchema": action.input_schema,
+                "annotations": {"readOnlyHint": action.policy == "read"},
+            }
+            for _, action in self._by_tool.values()
+        ]
+
+    def metadata(self) -> dict[str, dict[str, Any]]:
+        """Trace-only metadata, served separately from the tool protocol."""
+        return {
+            action.tool: {
+                "department": plugin.id,
+                "departmentName": plugin.display_name,
+                "pluginVersion": plugin.version,
+                "action": action.id,
+                "policy": action.policy,
+                "summaryFields": list(action.summary_fields),
+                "webEntry": plugin.web_entry,
+            }
+            for plugin, action in self._by_tool.values()
+        }
 
     def describe(self) -> list[dict[str, Any]]:
         return [
@@ -101,7 +139,11 @@ class Catalog:
                 "version": plugin.version,
                 "webEntry": plugin.web_entry,
                 "actions": [
-                    {"id": action.id, "tool": action.tool, "readOnly": action.read_only}
+                    {
+                        "id": action.id,
+                        "tool": action.tool,
+                        "policy": action.policy,
+                    }
                     for action in plugin.actions
                 ],
             }

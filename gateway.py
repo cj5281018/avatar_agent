@@ -1,20 +1,32 @@
+import hashlib
 import json
+import logging
 import os
+import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from secrets import compare_digest
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from actions import install_actions
 from bindings import EmployeeBindings
-from plugins import DepartmentPlugin, PluginAction, build_catalog
+from plugins import (
+    ActionContext,
+    ActionError,
+    DepartmentPlugin,
+    PluginAction,
+    build_catalog,
+)
 from avatar_service.db import Store, digest, now, uid
 from avatar_service.hr_bridge import HrBridge
 from avatar_service.leave_confirmation import LEAVE_TYPES, validate_leave
 from avatar_service.stream import Turn
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class LeaveInput(BaseModel):
@@ -28,19 +40,69 @@ class LeaveInput(BaseModel):
 leave_schema = LeaveInput.model_json_schema()
 leave_schema["properties"]["leaveType"]["enum"] = sorted(LEAVE_TYPES)
 leave_schema["properties"]["leaveType"]["description"] = "Use annual for 年假."
+
+
+# ---------------------------------------------------------------------------
+# Department handlers. They receive a trusted ActionContext; identity never
+# comes from arguments.
+# ---------------------------------------------------------------------------
+
+
+async def hr_preview(ctx: ActionContext, arguments: dict) -> dict:
+    fields = validate_leave(arguments)
+    if not ctx.chat_id:
+        # MCP clients without a chat session get a read-only preview.
+        return {"type": "leave_preview", "input": fields, "persisted": False}
+    with ctx.store.open() as db:
+        db.execute(
+            "INSERT OR IGNORE INTO sessions(id,user_id,title,created_at,updated_at) VALUES (?,?,?,?,?)",
+            (ctx.chat_id, ctx.employee["id"], "工作台请假", now(), now()),
+        )
+    item = ctx.bridge.confirmations.propose(
+        Turn(ctx.chat_id, ctx.employee["id"], ctx.login_key), fields
+    )
+    return {"type": "leave_preview", **item}
+
+
+async def hr_list_my_requests(ctx: ActionContext, arguments: dict) -> dict:
+    if arguments:
+        raise ActionError("invalid_arguments", "该动作不接受参数")
+    data = await ctx.bridge.invoke("list_my_requests", {}, ctx.login_key, "", uid("srq"))
+    return data["data"]
+
+
+async def testkit_preview(ctx: ActionContext, arguments: dict) -> dict:
+    # Deliberately reuses the action id "preview_leave" under another
+    # department: routing is by tool name, not by action id alone.
+    return {"type": "echo", "department": "testkit", "action": "preview_leave", "pluginVersion": "0.0.1"}
+
+
+async def testkit_echo(ctx: ActionContext, arguments: dict) -> dict:
+    message = arguments.get("message", "")
+    if not isinstance(message, str):
+        raise ActionError("invalid_arguments", "参数不正确")
+    return {
+        "type": "echo",
+        "department": "testkit",
+        "action": "echo",
+        "pluginVersion": "0.0.1",
+        "message": message[:100],
+    }
+
+
 HR_PLUGIN = DepartmentPlugin(
     id="hr",
     display_name="人力资源",
     version="1.0.0",
-    web_entry="/me",
+    web_entry="/web/me",
     actions=(
         PluginAction(
             id="preview_leave",
             tool="hr_preview_leave",
             description="预览请假日期、假别和事由，返回待员工核对的内容",
             input_schema=leave_schema,
-            handler="gateway.hr.preview_leave",
-            read_only=True,
+            handler=hr_preview,
+            policy="draft",
             summary_fields=("startDate", "endDate", "leaveType"),
         ),
         PluginAction(
@@ -48,8 +110,8 @@ HR_PLUGIN = DepartmentPlugin(
             tool="hr_list_my_requests",
             description="查询当前员工的请假申请",
             input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-            handler="gateway.hr.list_my_requests",
-            read_only=True,
+            handler=hr_list_my_requests,
+            policy="read",
             summary_fields=("id", "status"),
         ),
     ),
@@ -61,6 +123,14 @@ TEST_PLUGIN = DepartmentPlugin(
     version="0.0.1",
     actions=(
         PluginAction(
+            id="preview_leave",
+            tool="testkit_preview_leave",
+            description="仅用于接入测试的同名动作，只读",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler=testkit_preview,
+            policy="read",
+        ),
+        PluginAction(
             id="echo",
             tool="testkit_echo",
             description="仅用于接入测试的只读回显，不返回任何业务数据",
@@ -69,8 +139,8 @@ TEST_PLUGIN = DepartmentPlugin(
                 "properties": {"message": {"type": "string", "description": "回显文本"}},
                 "additionalProperties": False,
             },
-            handler="testkit.echo",
-            read_only=True,
+            handler=testkit_echo,
+            policy="read",
         ),
     ),
 )
@@ -86,6 +156,33 @@ def _catalog():
 CATALOG = _catalog()
 
 
+async def execute_action(ctx: ActionContext, tool: str, arguments: object) -> dict:
+    """Shared dispatch for every entry point (MCP and internal tools)."""
+    route = CATALOG.route(tool) if isinstance(tool, str) else None
+    if route is None:
+        raise ActionError("unknown_tool", "未知工具或参数不正确")
+    if not isinstance(arguments, dict):
+        raise ActionError("invalid_arguments", "参数格式不正确")
+    _plugin, action = route
+    try:
+        return await action.handler(ctx, arguments)
+    except ActionError:
+        raise
+    except HTTPException as exc:
+        code = "upstream_unavailable" if exc.status_code >= 500 else "invalid_arguments"
+        raise ActionError(code, str(exc.detail), 400) from exc
+    except ValidationError as exc:
+        raise ActionError("invalid_arguments", "参数校验失败", 400) from exc
+    except Exception:
+        logger.exception("action %s failed", tool)
+        raise ActionError("tool_error", "工具执行失败") from None
+
+
+def _service_allowed(authorization: str) -> bool:
+    secret = os.environ.get("AVATAR2_INTERNAL_TOKEN", "")
+    return bool(secret) and compare_digest(authorization.encode(), ("Bearer " + secret).encode())
+
+
 def create_app(directory=None):
     bridge = HrBridge()
     bridge.receiver = None
@@ -93,6 +190,16 @@ def create_app(directory=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.store = Store(directory or Path(os.environ["AVATAR2_DATA_DIR"]))
+        with app.state.store.open() as db:
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS web_tickets (
+                    ticket_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    used_at INTEGER
+                )"""
+            )
         bridge.start(app.state.store, lambda owner, event: None)
         encryption_key = os.environ.get('AVATAR2_BINDING_KEY')
         app.state.bindings = EmployeeBindings(app.state.store, encryption_key.encode()) if encryption_key else None
@@ -158,7 +265,9 @@ def create_app(directory=None):
         elif method == "ping":
             result = {}
         elif method == "tools/list":
-            result = {"tools": CATALOG.tools()}
+            # Protocol-shaped definitions only; trace metadata is served by the
+            # internal catalog endpoint.
+            result = {"tools": CATALOG.protocol_tools()}
         elif method in ("resources/list", "resources/templates/list", "prompts/list"):
             result = {{"resources/list": "resources", "resources/templates/list": "resourceTemplates",
                        "prompts/list": "prompts"}[method]: []}
@@ -166,43 +275,106 @@ def create_app(directory=None):
             if auth is None:
                 raise HTTPException(403, "工具执行需要个人凭据")
             name, arguments = params.get("name"), params.get("arguments", {})
-            route = CATALOG.route(name) if isinstance(name, str) else None
+            ctx = ActionContext(
+                bridge=bridge,
+                store=request.app.state.store,
+                user_id=auth[0]["id"],
+                login_key=auth[1],
+                chat_id=None,
+                employee=auth[0],
+            )
             try:
-                if route is None or not isinstance(arguments, dict):
-                    raise HTTPException(400, "未知工具或参数不正确")
-                plugin, action = route
-                if plugin.id == "hr" and action.id == "preview_leave":
-                    data = {"type": "leave_preview", "input": validate_leave(arguments)}
-                elif plugin.id == "hr" and action.id == "list_my_requests" and arguments == {}:
-                    data = (await bridge.invoke("list_my_requests", {}, auth[1], "", uid("srq")))["data"]
-                elif plugin.id == "testkit" and action.id == "echo":
-                    message = arguments.get("message", "")
-                    if not isinstance(message, str):
-                        raise HTTPException(400, "参数不正确")
-                    data = {"type": "echo", "department": "testkit", "action": "echo",
-                            "pluginVersion": plugin.version, "message": message[:100]}
-                else:
-                    raise HTTPException(400, "未知工具或参数不正确")
+                data = await execute_action(ctx, name, arguments)
                 result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]}
-            except HTTPException as exc:
-                result = {"isError": True, "content": [{"type": "text", "text": str(exc.detail)}]}
+            except ActionError as exc:
+                payload_error = {"errorCode": exc.code, "message": exc.message}
+                result = {
+                    "isError": True,
+                    "structuredContent": payload_error,
+                    "content": [{"type": "text", "text": json.dumps(payload_error, ensure_ascii=False)}],
+                }
         else:
             return {**envelope, "error": {"code": -32601, "message": "Method not found"}}
         return {**envelope, "result": result}
 
     from cards import install_cards
     install_cards(app, bridge, authenticate)
-    install_actions(app, bridge, CATALOG.tools(), CATALOG)
+    install_actions(app, bridge, CATALOG, execute_action, CATALOG.protocol_tools())
 
-    @app.get("/internal/plugins")
-    def plugins(authorization: str = Header(default="")):
-        secret = os.environ.get("AVATAR2_INTERNAL_TOKEN", "")
-        if not secret or not compare_digest(authorization.encode(), ("Bearer " + secret).encode()):
+    @app.post("/internal/hr/web-ticket")
+    def web_ticket(body: dict, authorization: str = Header(default="")):
+        if not _service_allowed(authorization):
             raise HTTPException(401, "服务凭据无效")
-        return {"plugins": CATALOG.describe()}
+        user_id = body.get("user_id")
+        target = body.get("target")
+        if not isinstance(user_id, str) or len(user_id) > 64:
+            raise HTTPException(400, "用户标识无效")
+        if target not in ("me", "approvals"):
+            raise HTTPException(400, "目标页面无效")
+        bindings = request_bindings = app.state.bindings
+        if bindings is None:
+            raise HTTPException(503, "员工绑定未配置")
+        try:
+            bindings.resolve(user_id)
+        except HTTPException:
+            raise
+        ticket = secrets.token_urlsafe(32)
+        expires = int(time.time() * 1000) + 60_000
+        with app.state.store.open() as db:
+            db.execute(
+                "INSERT INTO web_tickets(ticket_hash,user_id,target,expires_at) VALUES (?,?,?,?)",
+                (hashlib.sha256(ticket.encode()).hexdigest(), user_id, target, expires),
+            )
+        return {"ticket": ticket, "expiresAt": expires, "target": target}
+
+    @app.post("/internal/hr/ticket/consume")
+    def consume_ticket(body: dict, authorization: str = Header(default="")):
+        if not _service_allowed(authorization):
+            raise HTTPException(401, "服务凭据无效")
+        ticket = body.get("ticket")
+        if not isinstance(ticket, str) or not ticket or len(ticket) > 200:
+            raise HTTPException(400, "票据无效")
+        digest_value = hashlib.sha256(ticket.encode()).hexdigest()
+        stamp = int(time.time() * 1000)
+        with app.state.store.open() as db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute(
+                """UPDATE web_tickets SET used_at=?
+                   WHERE ticket_hash=? AND used_at IS NULL AND expires_at>?""",
+                (stamp, digest_value, stamp),
+            ).rowcount
+            row = db.execute(
+                "SELECT user_id,target FROM web_tickets WHERE ticket_hash=?", (digest_value,)
+            ).fetchone()
+        if changed != 1 or row is None:
+            raise HTTPException(410, "票据已失效或已使用")
+        if app.state.bindings is None:
+            raise HTTPException(503, "员工绑定未配置")
+        employee, _key = app.state.bindings.resolve(row["user_id"])
+        return {
+            "user_id": row["user_id"],
+            "handle": employee["handle"],
+            "displayName": employee["name"],
+            "target": row["target"],
+        }
+
+    @app.post("/internal/hr/web-session")
+    def web_session(body: dict, authorization: str = Header(default="")):
+        """Re-validate the binding behind an already-open personal page."""
+        if not _service_allowed(authorization):
+            raise HTTPException(401, "服务凭据无效")
+        user_id = body.get("user_id")
+        if not isinstance(user_id, str):
+            raise HTTPException(400, "用户标识无效")
+        if app.state.bindings is None:
+            raise HTTPException(503, "员工绑定未配置")
+        employee, _key = app.state.bindings.resolve(user_id)
+        return {"user_id": user_id, "handle": employee["handle"], "displayName": employee["name"]}
+
+    @app.get("/internal/catalog")
+    def catalog(authorization: str = Header(default="")):
+        if not _service_allowed(authorization):
+            raise HTTPException(401, "服务凭据无效")
+        return {"tools": CATALOG.metadata(), "plugins": CATALOG.describe()}
 
     return app
-
-
-
-

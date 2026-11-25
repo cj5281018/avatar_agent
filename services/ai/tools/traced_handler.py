@@ -94,7 +94,19 @@ def _extract_refs(content: list[Any], *, is_error: bool) -> dict[str, Any]:
     if titles:
         refs["titles"] = titles
     if is_error:
-        code = _classify_failure(failure_text)
+        # A structured error code from the gateway is authoritative and safe;
+        # the free-form text is only matched to pick a category and is never
+        # stored.
+        code = ""
+        if failure_text.startswith("{"):
+            try:
+                parsed = json.loads(failure_text)
+                if isinstance(parsed, dict) and isinstance(parsed.get("errorCode"), str):
+                    code = parsed["errorCode"][:40]
+            except ValueError:
+                code = ""
+        if code not in SAFE_REASON:
+            code = _classify_failure(failure_text)
         refs["reasonCode"] = code
         refs["reason"] = SAFE_REASON[code]
     return refs

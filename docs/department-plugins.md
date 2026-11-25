@@ -17,22 +17,25 @@ tool name:
 | action `id` | Stable action within the department, e.g. `preview_leave`. |
 | action `tool` | External MCP tool name, e.g. `hr_preview_leave`. Must be globally unique. |
 | `input_schema` | JSON Schema the model sees. |
-| `read_only` | Advertised as `readOnlyHint`; the gateway still validates. |
-| `handler` | Routing key resolved by the gateway/department. |
+| `policy` | `read` / `draft` / `write`. Advertised as `readOnlyHint` only for `read`; unknown policies are rejected and the AI layer denies/requires approval. |
+| `handler` | Executable handler `(ActionContext, arguments) -> dict`; missing handlers are rejected. |
 | `summary_fields` | Fields a generic action card may show. |
 
 Registration fails loudly on duplicate department ids, duplicate action ids in
-one department, or a tool name already owned by another department. There is no
-silent override.
+one department, a tool name already owned by another department, a missing
+handler, or an unknown policy. The plugin is committed atomically; a failure
+leaves nothing registered. There is no silent override.
 
 ## 2. How a call is routed
 
 1. The model already discovered the tool; there is no "select a department"
    tool.
-2. `tools/call` performs `catalog.route(tool_name)` and gets exactly one
-   `(plugin, action)` pair.
-3. The gateway dispatches by that pair. Unknown tools and unknown actions
-   return a clear `400 未知工具或参数不正确` before any business call.
+2. Both entrances — MCP `tools/call` and the internal tool call — use the same
+   `execute_action` dispatcher and the same `ActionContext`.
+3. `catalog.route(tool_name)` yields exactly one `(plugin, action)` pair; the
+   handler runs with trusted identity from the session/binding, never from
+   arguments. Unknown tools, invalid parameters and handler failures return a
+   structured `{errorCode, message}` before any business side effect.
 4. Identity still comes from the signed-in employee and their binding; the
    model supplies business parameters only.
 5. Formal submission and approval stay manual (employee card confirmation,
@@ -63,7 +66,14 @@ agent loop.
 
 It is never shown when the variable is unset/0.
 
-## 5. Trace fields
+## 5. Tool protocol vs trace metadata
+
+`tools/list` returns protocol-shaped definitions only. Department, action,
+policy, version and summary fields are served by `GET /internal/catalog`
+(service credentials). The AI layer merges them for approval decisions and
+trace attribution; the model never sees vendor metadata.
+
+## 6. Trace fields
 
 Tool events in a trace carry `department`, `departmentName`, `action` and
 `pluginVersion`, taken from the catalog at discovery time. The model is never

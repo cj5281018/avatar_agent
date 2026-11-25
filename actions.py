@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 import httpx
 from avatar_service.db import digest, now, uid
 from avatar_service.stream import Turn
-from avatar_service.leave_confirmation import validate_leave
+from plugins import ActionContext, ActionError
 
 WorkbenchUser = Annotated[str, StringConstraints(pattern=r"^[0-9A-HJKMNP-TV-Z]{26}$")]
 EmployeeToken = Annotated[str, StringConstraints(min_length=1, max_length=200)]
@@ -33,7 +33,7 @@ class ToolRequest(EmployeeRequest):
     chat_id: WorkbenchUser
 
 
-def install_actions(app, bridge, tools, catalog=None):
+def install_actions(app, bridge, catalog, dispatch, tools):
     def authorize(request: Request, authorization: str = Header(default="")):
         secret = os.environ.get("AVATAR2_INTERNAL_TOKEN", "")
         if not secret or not compare_digest(authorization.encode(), ("Bearer " + secret).encode()):
@@ -100,28 +100,18 @@ def install_actions(app, bridge, tools, catalog=None):
     @app.post("/internal/tools/call")
     async def call_tool(body: ToolRequest, bindings=Depends(authorize)):
         employee, key = bindings.resolve(body.user_id)
-        route = catalog.route(body.name) if catalog is not None else None
-        if route is None:
-            raise HTTPException(400, "未知工具或参数不正确")
-        plugin, action = route
-        if plugin.id == "hr" and action.id == "preview_leave":
-            fields = validate_leave(body.arguments)
-            with bridge.store.open() as db:
-                db.execute(
-                    "INSERT OR IGNORE INTO sessions(id,user_id,title,created_at,updated_at) VALUES (?,?,?,?,?)",
-                    (body.chat_id, employee["id"], "工作台请假", now(), now()),
-                )
-            item = bridge.confirmations.propose(Turn(body.chat_id, employee["id"], key), fields)
-            return {"type": "leave_preview", **item}
-        if plugin.id == "hr" and action.id == "list_my_requests" and not body.arguments:
-            return (await bridge.invoke("list_my_requests", {}, key, "", uid("srq")))["data"]
-        if plugin.id == "testkit" and action.id == "echo":
-            message = body.arguments.get("message", "")
-            if not isinstance(message, str):
-                raise HTTPException(400, "参数不正确")
-            return {"type": "echo", "department": "testkit", "action": "echo",
-                    "pluginVersion": plugin.version, "message": message[:100]}
-        raise HTTPException(400, "未知工具或参数不正确")
+        ctx = ActionContext(
+            bridge=bridge,
+            store=bridge.store,
+            user_id=body.user_id,
+            login_key=key,
+            chat_id=body.chat_id,
+            employee=employee,
+        )
+        try:
+            return await dispatch(ctx, body.name, body.arguments)
+        except ActionError as exc:
+            raise HTTPException(exc.status, detail={"errorCode": exc.code, "message": exc.message})
 
     @app.post("/internal/cards/{session}/{operation}/{action}")
     async def card(session: WorkbenchUser, operation: str, action: str, body: EmployeeRequest,
