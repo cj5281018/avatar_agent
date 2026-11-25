@@ -384,10 +384,6 @@
                 class="mb-2 flex w-full justify-start has-[>svg]:px-2">
                 <Activity /><span class="group-data-[collapsible=icon]:hidden">追踪中心</span>
             </Button>
-            <Button href="/employee-binding" variant="ghost" aria-label="员工服务"
-                class="mb-2 flex w-full justify-start has-[>svg]:px-2">
-                <BookOpen /><span class="group-data-[collapsible=icon]:hidden">员工服务</span>
-            </Button>
             <Button
                 href="/skills"
                 class="mb-2 flex w-full cursor-pointer items-center justify-start has-[>svg]:px-2"

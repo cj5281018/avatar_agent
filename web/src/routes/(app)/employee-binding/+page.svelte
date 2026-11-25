@@ -4,17 +4,10 @@
     let busy = $state(false)
     let requests = $state<Leave[] | null>(null)
 
-    async function openHr(target: 'me' | 'approvals') {
+    async function openHrPage(target: 'me' | 'approvals') {
         message = ''
         try {
-            const response = await fetch('/api/hr-entry', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ target }),
-            })
-            const data = await response.json()
-            if (!response.ok) throw new Error(data.message ?? '暂时无法打开 HR 页面')
-            window.open(data.url, '_blank', 'noopener')
+            await openHr(target)
         } catch (err) {
             message = err instanceof Error ? err.message : '暂时无法打开 HR 页面'
         }
@@ -48,8 +41,8 @@
         <button class="rounded border px-3 py-2" disabled={busy} onclick={() => run('renew')}>绑定或续期</button>
         <button class="rounded border px-3 py-2" disabled={busy} onclick={() => run('unlink')}>解除绑定</button>
         <button class="rounded border px-3 py-2" disabled={busy} onclick={() => run('myRequests')}>查询我的申请</button>
-        <button class="rounded border px-3 py-2" disabled={busy} onclick={() => openHr('me')}>打开我的 HR 页面</button>
-        <button class="rounded border px-3 py-2" disabled={busy} onclick={() => openHr('approvals')}>我的待审批（HR）</button>
+        <button class="rounded border px-3 py-2" disabled={busy} onclick={() => openHrPage('me')}>打开我的 HR 页面</button>
+        <button class="rounded border px-3 py-2" disabled={busy} onclick={() => openHrPage('approvals')}>我的待审批（HR）</button>
     </div>
     <p aria-live="polite">{message}</p>
     {#if requests}

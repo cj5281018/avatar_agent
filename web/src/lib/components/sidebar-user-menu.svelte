@@ -2,7 +2,8 @@
     import { goto } from '$app/navigation'
     import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js'
     import * as Avatar from '$lib/components/ui/avatar'
-    import { LogOut, Settings, Plug, Brain, User } from '@lucide/svelte'
+    import { LogOut, Settings, Plug, Brain, User, BadgeCheck } from '@lucide/svelte'
+    import { openHr } from '$lib/hr-entry'
 
     interface Props {
         email: string
@@ -24,6 +25,7 @@
     <DropdownMenu.Trigger>
         {#snippet child({ props })}
             <div
+                data-testid="sidebar-user-menu-trigger"
                 class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex w-full cursor-pointer items-center justify-between rounded-sm px-2 py-2 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:hover:bg-transparent"
                 {...props}>
                 <div class="flex min-w-0 flex-1 items-center gap-2.5">
@@ -53,6 +55,20 @@
         <DropdownMenu.Item class="cursor-pointer" onclick={() => goto('/settings/profile')}>
             <User class="h-4 w-4" />
             <span>Profile</span>
+        </DropdownMenu.Item>
+        <DropdownMenu.Item
+            class="cursor-pointer"
+            data-testid="menu-employee-service"
+            onclick={() => goto('/employee-binding')}>
+            <BadgeCheck class="h-4 w-4" />
+            <span>员工服务</span>
+        </DropdownMenu.Item>
+        <DropdownMenu.Item
+            class="cursor-pointer"
+            data-testid="menu-hr-approvals"
+            onclick={() => void openHr('approvals').catch(() => {})}>
+            <BadgeCheck class="h-4 w-4" />
+            <span>我的待审批（HR）</span>
         </DropdownMenu.Item>
         <DropdownMenu.Item class="cursor-pointer" onclick={() => goto('/settings/integrations')}>
             <Plug class="h-4 w-4" />
