@@ -10,9 +10,9 @@ const BUTTON_LABELS: Record<string, string> = {
 }
 
 /**
- * Server-approved descriptor for the generic action card: which department and
- * action this operation belongs to, the summary to show, and the operations the
- * current user may take. The model's wording is never used for this.
+ * Generic descriptor entry. The public route only proves that the caller owns
+ * the chat; the department and action come from the trusted operation record,
+ * and the department's adapter supplies the summary and allowed operations.
  */
 export const GET: RequestHandler = async ({ locals, params }) => {
     if (!locals.user) error(401, '请先登录')
@@ -21,74 +21,55 @@ export const GET: RequestHandler = async ({ locals, params }) => {
     if (chat.userId !== locals.user.id) error(403, '无权查看该卡片')
     if (!env.AVATAR2_GATEWAY_URL || !env.AVATAR2_INTERNAL_TOKEN) error(503, '部门服务未配置')
 
-    const response = await fetch(
-        `${env.AVATAR2_GATEWAY_URL}/internal/cards/${params.chatId}/${params.operation}/status`,
+    const headers = {
+        authorization: 'Bearer ' + env.AVATAR2_INTERNAL_TOKEN,
+        'content-type': 'application/json',
+    }
+    const recordResponse = await fetch(
+        `${env.AVATAR2_GATEWAY_URL}/internal/operations/${params.operation}`,
+        { headers, signal: AbortSignal.timeout(10_000) },
+    ).catch(() => null)
+    if (!recordResponse?.ok) error(404, '找不到该操作')
+    const record = (await recordResponse.json()) as {
+        department: string
+        action: string
+        userId?: string
+        chatId?: string | null
+        legacy?: boolean
+    }
+    if (!record.legacy) {
+        if (record.userId !== locals.user.id) error(403, '无权查看该操作')
+        if (record.chatId && record.chatId !== params.chatId) error(403, '操作不属于该会话')
+    }
+
+    const describeResponse = await fetch(
+        `${env.AVATAR2_GATEWAY_URL}/internal/adapters/${record.department}/${record.action}/describe`,
         {
             method: 'POST',
-            headers: {
-                authorization: 'Bearer ' + env.AVATAR2_INTERNAL_TOKEN,
-                'content-type': 'application/json',
-            },
-            body: JSON.stringify({ user_id: locals.user.id }),
+            headers,
+            body: JSON.stringify({
+                operationId: params.operation,
+                user_id: locals.user.id,
+                chatId: params.chatId,
+            }),
             signal: AbortSignal.timeout(15_000),
         },
     ).catch(() => null)
+    if (describeResponse?.status === 403) error(403, '无权查看该操作')
+    if (describeResponse?.status === 404) error(404, '找不到该操作')
+    if (!describeResponse?.ok) error(502, '暂时无法读取卡片描述')
 
-    if (!response) {
-        return json(
-            { department: 'hr', action: 'leave', allowed: [], note: '办理状态暂不可用。' },
-            { headers: { 'cache-control': 'no-store' } },
-        )
+    const descriptor = (await describeResponse.json()) as {
+        allowed?: string[]
+        [key: string]: unknown
     }
-    if (response.status === 403) {
-        return json(
-            {
-                department: 'hr',
-                action: 'leave',
-                operationId: params.operation,
-                allowed: [],
-                note: '请先在账号菜单的“员工服务”中绑定或续期 HR 身份。',
-            },
-            { headers: { 'cache-control': 'no-store' } },
-        )
-    }
-    if (!response.ok) {
-        return json(
-            { department: 'hr', action: 'leave', allowed: [], note: '办理状态暂不可用。' },
-            { headers: { 'cache-control': 'no-store' } },
-        )
-    }
-
-    const card = (await response.json()) as {
-        input?: Record<string, string>
-        leaveId?: string | null
-        status?: string
-        hrStatus?: string | null
-    }
-    const input = card.input ?? {}
-    const submitted = Boolean(card.leaveId)
-    const pending = card.status === 'pending' || card.status === 'confirmed'
-    const allowed = submitted ? ['status', 'open_hr'] : pending ? ['confirm', 'status', 'open_hr'] : ['status', 'open_hr']
-
     return json(
         {
-            department: 'hr',
-            departmentName: '人力资源',
-            action: 'leave',
-            pluginVersion: '1.0.0',
-            operationId: params.operation,
-            title: '请假申请',
-            label: '请假确认卡',
-            rows: [
-                { label: '开始日期', value: input.startDate ?? '—' },
-                { label: '结束日期', value: input.endDate ?? '—' },
-                { label: '假别', value: input.leaveType ?? '—' },
-                { label: '事由', value: input.reason ?? '—' },
-                { label: 'HR 单号', value: card.leaveId ?? '尚未提交' },
-                { label: '状态', value: card.hrStatus ?? card.status ?? '—' },
-            ],
-            buttons: allowed.map((id) => ({ id, label: BUTTON_LABELS[id] ?? id })),
-            allowed,
+            ...descriptor,
+            buttons: (descriptor.allowed ?? []).map((id) => ({
+                id,
+                label: BUTTON_LABELS[id] ?? id,
+            })),
         },
         { headers: { 'cache-control': 'no-store' } },
     )

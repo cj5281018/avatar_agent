@@ -199,3 +199,17 @@ second password:
 Set `AVATAR2_HR_WEB_URL` (default `http://localhost:8892`) and publish the HR
 service on that port. Tickets and business credentials are never written to the
 trace, logs or the final URL.
+
+### Card deep links and department descriptors
+
+- From a card, Avatar resolves the submitted request server-side and issues a
+  ticket whose controlled target is `request:<leaveId>`. The HR service checks
+  that the request belongs to the personal session before rendering it; pending
+  drafts keep the explicit "尚未提交" state.
+- `/api/action/{chat}/{operation}` looks up the trusted operation record
+  (department, action, owner, chat), then calls that department's describe
+  adapter. HR keeps its own summary/labels adapter; legacy `lop_` operations
+  still resolve through the HR adapter with the same ownership checks.
+- A new `sample` plugin (env `AVATAR2_ENABLE_SAMPLE_PLUGIN`) demonstrates a
+  brand-new department: one plugin file plus one registration line. Keep it
+  disabled in normal operation.

@@ -153,7 +153,13 @@ async def exchange_ticket(request: Request):
     }
     with request.app.state.store.connection(write=True) as db:
         set_setting(db, _session_key(token), json.dumps(entry))
-    target = "/web/approvals" if record.get("target") == "approvals" else "/web/me"
+    requested = record.get("target") or "me"
+    if requested == "approvals":
+        target = "/web/approvals"
+    elif requested.startswith("request:"):
+        target = "/web/request/" + requested.split(":", 1)[1]
+    else:
+        target = "/web/me"
     response = RedirectResponse(target, status_code=303)
     response.headers["cache-control"] = "no-store"
     response.headers["referrer-policy"] = "no-referrer"
@@ -174,6 +180,28 @@ def logout(request: Request):
     response = RedirectResponse("/web/me", status_code=303)
     response.delete_cookie(COOKIE, path="/")
     return response
+
+
+@router.get("/web/request/{request_id}")
+def request_detail(request: Request, request_id: str):
+    try:
+        _key, record = _load_session(request)
+        _revalidate(record)
+        store = request.app.state.store
+        with store.connection() as db:
+            row = db.execute("SELECT * FROM leave_requests WHERE id=?", (request_id,)).fetchone()
+        if row is None or row["requester_handle"] != record["handle"]:
+            raise ServiceError("无权查看该申请", 403)
+        body = (
+            f'<article class="card" data-testid="request-detail"><h3>{html.escape(row["leave_type"])} · '
+            f'{html.escape(row["start_date"])} → {html.escape(row["end_date"])}</h3>'
+            f'<p>{html.escape(store.open(row["encrypted_reason"]))}</p>'
+            f'<p class="muted">单号 {html.escape(row["id"])} · 状态 {html.escape(row["status"])}</p>'
+            f'</article>'
+        )
+        return _page("申请详情", body, record)
+    except ServiceError as exc:
+        return _page("无法查看", f'<p class="muted">{html.escape(str(exc))}</p>', None, str(exc))
 
 
 @router.get("/web/me")

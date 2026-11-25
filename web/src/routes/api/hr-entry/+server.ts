@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private'
 import { error, json } from '@sveltejs/kit'
+import { chatRepository } from '$lib/server/db/chats'
 import type { RequestHandler } from './$types.js'
 
 const TARGETS = new Set(['me', 'approvals'])
@@ -16,8 +17,31 @@ export const POST: RequestHandler = async ({ locals, request, url }) => {
     if (!env.AVATAR2_HR_WEB_URL) error(503, 'HR 网页地址未配置')
 
     const body = await request.json().catch(() => ({}))
-    const target = body?.target ?? 'me'
+    let target = body?.target ?? 'me'
     if (typeof target !== 'string' || !TARGETS.has(target)) error(400, '目标页面无效')
+
+    // From a card: resolve the submitted request server-side, so the ticket
+    // carries a controlled destination instead of trusting the browser.
+    if (typeof body?.operationId === 'string' && typeof body?.chatId === 'string') {
+        const chat = await chatRepository.get(body.chatId)
+        if (!chat) error(404, '找不到该会话')
+        if (chat.userId !== locals.user.id) error(403, '无权打开该卡片')
+        const cardResponse = await fetch(
+            `${env.AVATAR2_GATEWAY_URL}/internal/cards/${body.chatId}/${body.operationId}/status`,
+            {
+                method: 'POST',
+                headers: {
+                    authorization: 'Bearer ' + env.AVATAR2_INTERNAL_TOKEN,
+                    'content-type': 'application/json',
+                },
+                body: JSON.stringify({ user_id: locals.user.id }),
+                signal: AbortSignal.timeout(15_000),
+            },
+        ).catch(() => null)
+        if (!cardResponse?.ok) error(502, '暂时无法确认该单据')
+        const card = (await cardResponse.json()) as { leaveId?: string | null }
+        target = card.leaveId ? `request:${card.leaveId}` : 'me'
+    }
 
     const response = await fetch(env.AVATAR2_GATEWAY_URL + '/internal/hr/web-ticket', {
         method: 'POST',

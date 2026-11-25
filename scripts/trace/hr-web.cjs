@@ -146,8 +146,11 @@ function expireTicket(ticket) {
         ])
         await bobHr.waitForLoadState('domcontentloaded')
         assert(!bobHr.url().includes('ticket='), 'ticket leaked into the URL: ' + bobHr.url())
-        assert(bobHr.url().includes('/web/me'), 'should land on /web/me: ' + bobHr.url())
-        await bobHr.getByText('我的申请').first().waitFor({ timeout: 20000 })
+        assert(
+            bobHr.url().includes('/web/request/' + leaveId),
+            'card should deep-link the submitted request: ' + bobHr.url(),
+        )
+        await bobHr.getByTestId('request-detail').waitFor({ timeout: 20000 })
         assert((await bobHr.locator('main').innerText()).includes(leaveId))
         const logs = execFileSync('docker', ['logs', '--tail', '400', 'avatar2-source-gateway-1'], { encoding: 'utf8' })
             + execFileSync('docker', ['logs', '--tail', '400', 'avatar2-source-hr-1'], { encoding: 'utf8' })
@@ -191,6 +194,9 @@ function expireTicket(ticket) {
         })
         await aliceHr.goto(hrBase + '/web/approvals')
         assert(!(await aliceHr.locator('main').innerText()).includes(leaveId), 'unassigned supervisor sees the request')
+        await aliceHr.goto(hrBase + '/web/request/' + leaveId)
+        await aliceHr.getByText(/无权查看|无法查看/).first().waitFor({ timeout: 20000 })
+        console.log('PASS another employee cannot open Bob request by deep link')
         await aliceContext.close()
 
         // ---- Bob re-reads card and trace business link; seal unchanged ----
@@ -217,6 +223,42 @@ function expireTicket(ticket) {
         await demo.getByRole('button', { name: '查看结果' }).click()
         await demo.getByText(/已渲染同一组件/).waitFor({ timeout: 5000 })
         console.log('PASS generic card renders a testkit descriptor without HR branches')
+
+        // ---- descriptor entry through a trusted operation record ----
+        const bobId = execFileSync(
+            'docker',
+            [
+                'exec', 'avatar2-source-postgres-1', 'sh', '-c',
+                `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select id from users where email='bob@avatar2.test'"`,
+            ],
+            { encoding: 'utf8' },
+        ).trim()
+        const note = JSON.parse(execFileSync('docker', ['exec', '-i', 'avatar2-source-gateway-1', 'python', '-'], {
+            input: `import json,os,urllib.request
+req=urllib.request.Request("http://127.0.0.1:8790/internal/tools/call", data=json.dumps({"user_id":"${bobId}","chat_id":"${chatId}","name":"testkit_prepare_note","arguments":{}}).encode(), headers={"Authorization":"Bearer "+os.environ["AVATAR2_INTERNAL_TOKEN"],"Content-Type":"application/json"})
+print(urllib.request.urlopen(req,timeout=15).read().decode())`,
+            encoding: 'utf8',
+        }).trim())
+        const noteOp = note.operationId
+        const noteDescriptor = await (await bob.request.get(`${base}/api/action/${chatId}/${noteOp}`)).json()
+        assert.equal(noteDescriptor.department, 'testkit')
+        assert(noteDescriptor.rows.some((row) => row.value === 'testkit'))
+        const unknown = await bob.request.get(`${base}/api/action/${chatId}/op_does_not_exist`)
+        assert.equal(unknown.status(), 404)
+        const aliceProbe = await (await (await browser.newContext()).newPage()).request.get(
+            `${base}/api/action/${chatId}/${noteOp}`,
+        )
+        assert([401, 403].includes(aliceProbe.status()), 'other user must not read the descriptor')
+        console.log('PASS descriptor resolved through the trusted operation record')
+
+        if (process.env.OLD_OP && process.env.OLD_CHAT) {
+            const legacy = await (await bob.request.get(
+                `${base}/api/action/${process.env.OLD_CHAT}/${process.env.OLD_OP}`,
+            )).json()
+            assert.equal(legacy.department, 'hr')
+            assert.equal(legacy.label, '请假确认卡')
+            console.log('PASS legacy HR operation still resolves to the HR card')
+        }
 
         // ---- rebinding invalidates the old session ----
         await bob.goto(base + '/employee-binding')

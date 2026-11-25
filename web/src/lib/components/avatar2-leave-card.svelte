@@ -55,7 +55,7 @@
         else if (id === 'status') await update('status')
         else if (id === 'open_hr') {
             try {
-                await openHr('me')
+                await openHr('me', { chatId, operationId })
             } catch (error) {
                 message = error instanceof Error ? error.message : '暂时无法打开 HR 页面'
             }
