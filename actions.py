@@ -33,7 +33,7 @@ class ToolRequest(EmployeeRequest):
     chat_id: WorkbenchUser
 
 
-def install_actions(app, bridge, catalog, dispatch, tools):
+def install_actions(app, bridge, catalog, dispatch, tools, record=None):
     def authorize(request: Request, authorization: str = Header(default="")):
         secret = os.environ.get("AVATAR2_INTERNAL_TOKEN", "")
         if not secret or not compare_digest(authorization.encode(), ("Bearer " + secret).encode()):
@@ -107,6 +107,7 @@ def install_actions(app, bridge, catalog, dispatch, tools):
             login_key=key,
             chat_id=body.chat_id,
             employee=employee,
+            record=record,
         )
         try:
             return await dispatch(ctx, body.name, body.arguments)

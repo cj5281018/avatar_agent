@@ -49,7 +49,7 @@ async function ticket(page, target) {
 def call(payload):
     req=urllib.request.Request("http://127.0.0.1:8790/internal/tools/call", data=json.dumps(payload).encode(), headers={"Authorization":"Bearer "+os.environ["AVATAR2_INTERNAL_TOKEN"],"Content-Type":"application/json"})
     return json.loads(urllib.request.urlopen(req,timeout=15).read())
-print(json.dumps(call({"user_id":"${bobId}","chat_id":"01M00000000000000000000000","name":"hr_preview_leave","arguments":{"startDate":"2027-08-01","endDate":"2027-08-01","leaveType":"annual","reason":"rebind form"}})))`))
+print(json.dumps(call({"user_id":"${bobId}","chat_id":"01M00000000000000000000000","name":"hr_preview_leave","arguments":{"startDate":"2027-09-03","endDate":"2027-09-03","leaveType":"annual","reason":"rebind form b"}})))`))
     const op = confirmed.operationId
     const card = JSON.parse(dockerPy(`import json,os,urllib.request
 def call(payload):
@@ -98,7 +98,7 @@ print(urllib.request.urlopen(req,timeout=15).status)`)
         )
         const still = execFileSync('docker', ['exec', 'avatar2-source-hr-1', 'python', '-c',
             `import sqlite3,glob; db=sqlite3.connect(glob.glob('/var/lib/hr/*.sqlite3')[0]); print(db.execute("select status from leave_requests where id=?", ("${leaveId}",)).fetchone()[0])`], { encoding: 'utf8' }).trim()
-        assert.equal(still, 'pending', 'request must stay pending after rejected rebind form')
+        assert.equal(still, 'pending', 'request must stay pending after rejected rebind form b')
         console.log('PASS supervisor rebind rejected the old approval form; request still pending')
 
         // Renew restores the directory identity (admin) and approval succeeds.

@@ -61,9 +61,72 @@ def _record_operation(
         )
 
 
+async def hr_describe(ctx: ActionContext, operation_id: str, chat_id: str) -> dict:
+    from avatar_service.leave_confirmation import view
+
+    with ctx.store.open() as db:
+        card = view(ctx.bridge.confirmations.owned(db, ctx.employee["id"], chat_id, operation_id))
+    fields = card.get("input", {})
+    submitted = bool(card.get("leaveId"))
+    pending = card.get("status") in ("pending", "confirmed")
+    hr_status = None
+    if submitted:
+        try:
+            history = await ctx.bridge.invoke("list_my_requests", {}, ctx.login_key, "", uid("srq"))
+            entry = next(
+                (record for record in history["data"]["requests"] if record["id"] == card["leaveId"]),
+                None,
+            )
+            hr_status = entry["status"] if entry else None
+        except Exception:
+            hr_status = None
+    allowed = (
+        ["status", "open_hr"]
+        if submitted
+        else ["confirm", "status", "open_hr"]
+        if pending
+        else ["status", "open_hr"]
+    )
+    return {
+        "department": "hr",
+        "departmentName": "人力资源",
+        "action": "leave",
+        "pluginVersion": "1.0.0",
+        "operationId": operation_id,
+        "title": "请假申请",
+        "label": "请假确认卡",
+        "rows": [
+            {"label": "开始日期", "value": fields.get("startDate", "—")},
+            {"label": "结束日期", "value": fields.get("endDate", "—")},
+            {"label": "假别", "value": fields.get("leaveType", "—")},
+            {"label": "事由", "value": fields.get("reason", "—")},
+            {"label": "HR 单号", "value": card.get("leaveId") or "尚未提交"},
+            {"label": "状态", "value": hr_status or card.get("status", "—")},
+        ],
+        "allowed": allowed,
+    }
+
+
+async def testkit_describe(ctx: ActionContext, operation_id: str, chat_id: str) -> dict:
+    return {
+        "department": "testkit",
+        "action": "note",
+        "operationId": operation_id,
+        "title": "测试便签",
+        "label": "测试动作卡",
+        "rows": [
+            {"label": "部门", "value": "testkit"},
+            {"label": "动作", "value": "note"},
+            {"label": "说明", "value": "只读夹具，未写业务"},
+        ],
+        "allowed": [],
+    }
+
+
 async def testkit_prepare_note(ctx: ActionContext, arguments: dict) -> dict:
     operation = "note_" + __import__("secrets").token_urlsafe(12).replace("-", "_")
-    _record_operation(ctx.store, operation, "testkit", "note", ctx.user_id, ctx.chat_id)
+    if ctx.record:
+        ctx.record(operation, "testkit", "note", ctx.user_id, ctx.chat_id)
     return {
         "type": "note_preview",
         "operationId": operation,
@@ -84,7 +147,8 @@ async def hr_preview(ctx: ActionContext, arguments: dict) -> dict:
     item = ctx.bridge.confirmations.propose(
         Turn(ctx.chat_id, ctx.employee["id"], ctx.login_key), fields
     )
-    _record_operation(ctx.store, item["operationId"], "hr", "leave", ctx.user_id, ctx.chat_id)
+    if ctx.record:
+        ctx.record(item["operationId"], "hr", "preview_leave", ctx.user_id, ctx.chat_id)
     return {"type": "leave_preview", **item}
 
 
@@ -147,6 +211,7 @@ HR_PLUGIN = DepartmentPlugin(
             input_schema=leave_schema,
             handler=hr_preview,
             policy="draft",
+            describe=hr_describe,
             summary_fields=("startDate", "endDate", "leaveType"),
         ),
         PluginAction(
@@ -189,6 +254,7 @@ TEST_PLUGIN = DepartmentPlugin(
             input_schema={"type": "object", "properties": {}, "additionalProperties": False},
             handler=testkit_prepare_note,
             policy="draft",
+            describe=testkit_describe,
         ),
         PluginAction(
             id="fail",
@@ -317,55 +383,8 @@ def create_app(directory=None):
 
     app = FastAPI(title="avatar2", lifespan=lifespan)
 
-    async def hr_descriptor(operation_id: str, user_id: str, chat_id: str) -> dict:
-        bindings = app.state.bindings
-        if bindings is None:
-            raise HTTPException(503, "员工绑定未配置")
-        employee, key = bindings.resolve(user_id)
-        from avatar_service.leave_confirmation import view
-
-        with app.state.store.open() as db:
-            card = view(bridge.confirmations.owned(db, employee["id"], chat_id, operation_id))
-        fields = card.get("input", {})
-        submitted = bool(card.get("leaveId"))
-        hr_status = None
-        if submitted:
-            try:
-                history = await bridge.invoke("list_my_requests", {}, key, "", uid("srq"))
-                entry = next(
-                    (record for record in history["data"]["requests"]
-                     if record["id"] == card.get("leaveId")),
-                    None,
-                )
-                hr_status = entry["status"] if entry else None
-            except Exception:
-                hr_status = None
-        pending = card.get("status") in ("pending", "confirmed")
-        allowed = (
-            ["status", "open_hr"]
-            if submitted
-            else ["confirm", "status", "open_hr"]
-            if pending
-            else ["status", "open_hr"]
-        )
-        return {
-            "department": "hr",
-            "departmentName": "人力资源",
-            "action": "leave",
-            "pluginVersion": "1.0.0",
-            "operationId": operation_id,
-            "title": "请假申请",
-            "label": "请假确认卡",
-            "rows": [
-                {"label": "开始日期", "value": fields.get("startDate", "—")},
-                {"label": "结束日期", "value": fields.get("endDate", "—")},
-                {"label": "假别", "value": fields.get("leaveType", "—")},
-                {"label": "事由", "value": fields.get("reason", "—")},
-                {"label": "HR 单号", "value": card.get("leaveId") or "尚未提交"},
-                {"label": "状态", "value": hr_status or card.get("status", "—")},
-            ],
-            "allowed": allowed,
-        }
+    def recorder(operation: str, department: str, action: str, user_id: str, chat_id: str | None) -> None:
+        _record_operation(app.state.store, operation, department, action, user_id, chat_id)
 
     def authenticate(request: Request, authorization: str = Header(default="")):
         scheme, _, token = authorization.partition(" ")
@@ -442,6 +461,7 @@ def create_app(directory=None):
                 login_key=auth[1],
                 chat_id=None,
                 employee=auth[0],
+                record=recorder,
             )
             try:
                 data = await execute_action(ctx, name, arguments)
@@ -459,7 +479,7 @@ def create_app(directory=None):
 
     from cards import install_cards
     install_cards(app, bridge, authenticate)
-    install_actions(app, bridge, CATALOG, execute_action, CATALOG.protocol_tools())
+    install_actions(app, bridge, CATALOG, execute_action, CATALOG.protocol_tools(), recorder)
 
     @app.post("/internal/hr/web-ticket")
     def web_ticket(
@@ -590,29 +610,44 @@ def create_app(directory=None):
         chat_id = body.get("chatId")
         if not all(isinstance(value, str) and value for value in (operation_id, user_id, chat_id)):
             raise HTTPException(400, "参数不完整")
-        if department == "hr" and action == "leave":
-            return await hr_descriptor(operation_id, user_id, chat_id)
-        if department == "testkit" and action == "note":
-            with app.state.store.open() as db:
-                row = db.execute(
-                    "SELECT * FROM action_operations WHERE operation_id=?", (operation_id,)
-                ).fetchone()
-            if row is None or row["user_id"] != user_id:
-                raise HTTPException(404, "找不到该操作")
-            return {
-                "department": "testkit",
-                "action": "note",
-                "operationId": operation_id,
-                "title": "测试便签",
-                "label": "测试动作卡",
-                "rows": [
-                    {"label": "部门", "value": "testkit"},
-                    {"label": "动作", "value": "note"},
-                    {"label": "说明", "value": "只读夹具，未写业务"},
-                ],
-                "allowed": [],
-            }
-        raise HTTPException(404, "没有该部门的描述适配器")
+
+        with app.state.store.open() as db:
+            record = db.execute(
+                "SELECT department,action,user_id,chat_id FROM action_operations WHERE operation_id=?",
+                (operation_id,),
+            ).fetchone()
+        if record is not None:
+            if (
+                record["department"] != department
+                or record["action"] != action
+                or record["user_id"] != user_id
+                or record["chat_id"] != chat_id
+            ):
+                raise HTTPException(403, "操作与调用身份不匹配")
+        elif not (operation_id.startswith("lop_") and department == "hr" and action == "leave"):
+            raise HTTPException(404, "找不到该操作")
+
+        lookup_action = "preview_leave" if (department == "hr" and action == "leave") else action
+        resolved = CATALOG.action(department, lookup_action)
+        if resolved is None:
+            raise HTTPException(404, "没有该部门的动作")
+        plugin, plugin_action = resolved
+        if plugin_action.describe is None:
+            raise HTTPException(404, "没有该动作的描述适配器")
+        bindings = app.state.bindings
+        if bindings is None:
+            raise HTTPException(503, "员工绑定未配置")
+        employee, key = bindings.resolve(user_id)
+        ctx = ActionContext(
+            bridge=bridge,
+            store=app.state.store,
+            user_id=user_id,
+            login_key=key,
+            chat_id=chat_id,
+            employee=employee,
+            record=recorder,
+        )
+        return await plugin_action.describe(ctx, operation_id, chat_id)
 
     @app.get("/internal/catalog")
     def catalog(authorization: str = Header(default="")):

@@ -46,9 +46,11 @@ class ActionContext:
     login_key: str
     chat_id: str | None = None
     employee: dict[str, Any] | None = None
+    record: Callable[[str, str, str, str, str | None], None] | None = None
 
 
 Handler = Callable[[ActionContext, dict[str, Any]], Awaitable[dict[str, Any]]]
+DescribeHandler = Callable[[ActionContext, str, str], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,9 @@ class PluginAction:
     # write: changes business state and is never exposed without human action.
     policy: ApprovalPolicy
     summary_fields: tuple[str, ...] = ()
+    # Optional department describe adapter, registered with the action so the
+    # public descriptor entry has no department branches.
+    describe: DescribeHandler | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,15 @@ class Catalog:
 
     def route(self, tool_name: str) -> tuple[DepartmentPlugin, PluginAction] | None:
         return self._by_tool.get(tool_name)
+
+    def action(self, department: str, action_id: str) -> tuple[DepartmentPlugin, PluginAction] | None:
+        plugin = self.plugins.get(department)
+        if plugin is None:
+            return None
+        for action in plugin.actions:
+            if action.id == action_id:
+                return plugin, action
+        return None
 
     def protocol_tools(self) -> list[dict[str, Any]]:
         """Standards-shaped tools for MCP clients; no vendor metadata."""
