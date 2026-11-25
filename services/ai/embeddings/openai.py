@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import httpx
 import asyncio
@@ -13,6 +14,10 @@ OPENAI_MAX_BATCH_SIZE = 2048
 OPENAI_MAX_RETRIES = 3
 OPENAI_RETRY_DELAY = 1.0
 CHARS_PER_TOKEN = 3
+# Local TEI on CPU can take longer than a hosted API on the first document.
+EMBEDDING_HTTP_TIMEOUT_SECONDS = float(
+    os.getenv("EMBEDDING_HTTP_TIMEOUT_SECONDS", "60")
+)
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
@@ -160,7 +165,7 @@ class OpenAIEmbeddingClient:
         self.embeddings_url = f"{base_url}/embeddings"
 
         self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(60.0, connect=10.0),
+            timeout=httpx.Timeout(EMBEDDING_HTTP_TIMEOUT_SECONDS, connect=10.0),
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
         )
 

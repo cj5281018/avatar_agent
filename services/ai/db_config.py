@@ -3,6 +3,7 @@ Database-backed configuration for embedding settings.
 Provides cached access to configuration stored in PostgreSQL.
 """
 
+import os
 import time
 from typing import Optional
 from dataclasses import dataclass
@@ -50,7 +51,7 @@ class EmbeddingConfigCache:
         return EmbeddingConfig(
             provider=record.provider_type,
             api_key=config.get("apiKey"),
-            model=config.get("model", ""),
+            model=config.get("model") or os.getenv("EMBEDDING_MODEL_NAME", ""),
             api_url=config.get("apiUrl"),
             dimensions=config.get("dimensions"),
             max_model_len=config.get("maxModelLen"),

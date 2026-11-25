@@ -8,6 +8,7 @@ support without provider-specific glue.
 
 import json
 import logging
+import os
 import time
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, ClassVar, cast
@@ -98,6 +99,16 @@ def _image_data_source(block: Mapping[str, Any]) -> tuple[str, str] | None:
 
 
 logger = logging.getLogger(__name__)
+
+# Some OpenAI-compatible reasoning endpoints (DeepSeek) spend the whole output
+# budget on hidden reasoning and emit no visible text. A deployment that needs
+# visible answers can disable thinking and reserve a minimum output budget.
+DISABLE_THINKING = os.getenv("OPENAI_COMPAT_DISABLE_THINKING", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+MIN_MAX_TOKENS = int(os.getenv("OPENAI_COMPAT_MIN_MAX_TOKENS", "0") or 0)
 
 # --- Endpoint vision-capability metadata ---------------------------------
 #
@@ -641,6 +652,16 @@ class OpenAICompatibleProvider(LLMProvider):
                     f"Sending request with {len(tools)} tools: {[t['name'] for t in tools]}"
                 )
 
+            # DeepSeek thinking mode is opt-out: without this the 2048-token
+            # budget can be consumed entirely by reasoning, yielding an empty
+            # visible answer. The switch is deployment-scoped, not model-gated.
+            if DISABLE_THINKING and active_model.lower().startswith("deepseek"):
+                params["extra_body"] = {"thinking": {"type": "disabled"}}
+                if MIN_MAX_TOKENS:
+                    params["max_tokens"] = max(
+                        int(params["max_tokens"]), MIN_MAX_TOKENS
+                    )
+
             validate_openai_tool_message_sequence(openai_messages)
 
             stream = await self.client.chat.completions.create(**params)
@@ -659,6 +680,8 @@ class OpenAICompatibleProvider(LLMProvider):
             )
 
             text_started = False
+            text_emitted = False
+            finish_reason: str | None = None
             current_text_index = 0
             # tool_call index (from OpenAI) -> our content block index
             tool_block_indices: dict[int, int] = {}
@@ -693,6 +716,7 @@ class OpenAICompatibleProvider(LLMProvider):
                         current_text_index = next_block_index
                         next_block_index += 1
                         text_started = True
+                        text_emitted = True
                         yield RawContentBlockStartEvent(
                             type="content_block_start",
                             index=current_text_index,
@@ -756,6 +780,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
                 # Handle finish_reason
                 if chunk.choices[0].finish_reason is not None:
+                    finish_reason = chunk.choices[0].finish_reason
                     # Continue through the provider's final usage-only chunk.
                     continue
 
@@ -772,6 +797,13 @@ class OpenAICompatibleProvider(LLMProvider):
                 )
 
             reasoning_content = "".join(reasoning_content_parts)
+            logger.info(
+                "openai_compatible stream finish=%s text_started=%s reasoning_chars=%d model=%s",
+                finish_reason,
+                text_emitted,
+                len(reasoning_content),
+                active_model,
+            )
             if reasoning_content:
                 reasoning_block_index = next_block_index
                 next_block_index += 1

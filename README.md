@@ -1,215 +1,94 @@
-# avatar2
+# Avatar2 可插拔企业 Agent 平台
 
-This checkout contains a remote tool gateway and authenticated leave-operation APIs.
-It uses the existing employee login store and the paired HR service. Run a single
-gateway worker because the downstream service validates short-lived call grants
-against the gateway process.
+Avatar2 是面向企业员工的内部业务助手，设计理念是“万物皆插件”。各部门将自己的业务能力作为独立服务接入，员工通过同一个 Web 工作台查知识、发起申请并跟踪结果。当前已接入 HR 请假与审批。
 
-## Local startup
+## 部门服务如何接入
 
-Use the Python environment of your existing HR deployment. Add its source
-directory and this checkout to PYTHONPATH. Set AVATAR2_DATA_DIR to the employee
-platform's data directory, PY_AVATAR_HR_URL to the paired HR endpoint, and
-PY_AVATAR_PUBLIC_URL to the gateway's callback URL. The HR process must use that
-same callback URL for pairing and identity checks. Use an isolated deployment
-for trial submissions.
+部门插件声明可调用的工具、参数和确认要求。动作网关按部门和动作路由请求，部门服务负责业务授权、执行和数据存储。[部门插件接入说明](docs/department-plugins.md)
 
-Run `python -m uvicorn gateway:create_app --factory --port 8790`. An administrator
-can pair HR using `POST /v1/admin/hr/setup`. The gateway accepts individual
-employee login bearer tokens from the existing identity service. An optional
-AVATAR2_DISCOVERY_TOKEN only permits listing tools. It cannot execute them.
+## 平台架构
 
-## Integration
+```mermaid
+flowchart LR
+    W["Avatar Web 工作台"] --> A["Agent Harness"]
+    A --> R["RAG 知识检索"]
+    A --> G["部门动作网关"]
+    G --> H["HR 服务与审批网页"]
+    A -.执行记录.-> T["Trace 追踪中心"]
+```
 
-- Register `/mcp` as a remote tools endpoint. Per-user OAuth integration remains
-  required for the stock workbench to forward individual credentials.
-- `hr_preview_leave` validates parameters without saving or submitting a request.
-  A trusted Web backend must turn the preview into a card using
-  `POST /sessions` and `POST /sessions/{session}/leave-drafts`.
-- Confirm using
-  `POST /v1/sessions/{session}/hr/leave-confirmations/{operation}/confirm`.
-  Fetch card status from `GET /sessions/{session}/leave-drafts/{operation}`.
-- Connect the official [annual leave regulation](https://xzfg.moj.gov.cn/front/law/detail?LawID=208)
-  and [implementation rules](https://www.mohrss.gov.cn/xxgk2020/gzk/gz/202112/P020211229590352867273.pdf)
-  via the workbench file connector. Configure the
-  [Chinese benchmark](https://github.com/sjtu-suzhou-ai-zhiwei-tech/bank-rag-benchmark)
-  in an isolated index and query a small fixed sample against its expected sources.
+Agent 按需检索法规或调用部门工具。工作台展示确认卡，员工确认后由 HR 正式提交。主管在独立 HR 网页批准，员工可回到原聊天卡或 Trace 查看同一单据。
 
-## Source build
+## 已落地的 HR 业务
 
-The independent build uses the source directories in this checkout. Copy
-.env.example to .env for a new installation and set unique database and
-encryption credentials. The default local override binds port 8300. Stop another
-instance listening there, or use a different port and matching APP_URL.
+| 场景 | 业务流程 |
+| --- | --- |
+| 查规定与起草 | Bob 在聊天中询问年休假规定并指定日期，Agent 提供来源并起草请假。 |
+| 提交与审批 | Bob 在卡片上确认并取得 HR 单号。指定主管从自己 Avatar 的账号菜单打开「我的待审批（HR）」，免二次登录进入 HR 批准。 |
+| 回查 | Bob 在原卡点击「回查同一申请」，再到该轮 Trace 查看关联业务，两处核对同一单号及 `approved`。 |
 
-    docker compose -p avatar2-source --env-file .env -f docker/docker-compose.yml -f docker/avatar2.compose.yaml --profile filesystem up -d --build web connector-manager filesystem-connector gateway hr
+## 代码结构
 
-The working tree includes the Web and AI services, searcher, indexer, connector
-manager, migrations, filesystem connector, and supporting Rust workspace
-members from the local upstream checkout. The remaining workspace members are
-included to preserve lockfile and build resolution. Employee identity,
-contract, HR, IT helpdesk and tests are under avatar/. The model runtime is
-copied verbatim. The upstream license is included at the repository root.
+```text
+avatar2/
+├── web/                   # Web 工作台、对话与动作卡
+├── services/
+│   ├── ai/                # Agent 运行与 Trace 采集
+│   ├── indexer/           # 文档索引
+│   └── searcher/          # 知识检索
+├── gateway.py             # 部门工具调用入口
+├── plugins.py             # 部门插件与动作注册
+├── avatar/
+│   └── hr_service/        # 请假、审批与独立 HR 网页
+├── source-documents/      # 年休假法规演示语料
+├── scripts/trace/         # Trace 与 HR 流程验收脚本
+├── docs/                  # 部门插件接入说明
+└── docker/                # Docker Compose 启动配置
+```
 
-Use /knowledge as the filesystem source path. The source build needs its own
-model settings and test accounts. Employee binding, chat tool registration,
-in-chat confirmation, manager approval and same-request lookups are implemented
-and exercised end to end.
+## 使用 Docker Compose 启动
 
-## Source provenance
+以下示例在项目根目录使用 PowerShell 7.3 或更新版本执行。需要 Docker Engine 和 Docker Compose，Compose 必须支持配置中的 `!reset`。首次构建会下载基础镜像及依赖。
 
-The local source snapshots were taken from Omni HEAD
-c55816d7e36cce9d47c022382af4953e63af8625 and Avatar HEAD
-b87c16a7532e8c80f88c268df9498f0c99992bf4. The copy preserves the local source
-contents, including any local edits. SHA-256 comparison found zero differences
-between the copied AI Python files and the local source checkout.
+### 1. 配置并启动服务
 
-## Per-turn trace
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
 
-Every assistant attempt is stored as one run with an append-only event ledger:
+在 `.env` 中填写自己的配置。建议使用独立测试环境和数据卷。
 
-- `agent_trace_runs` holds one row per attempt (chat, user message, status,
-  model, last sequence and the sealed chain head).
-- `agent_trace_events` holds the events of that run. Each event's digest is a
-  SHA-256 over a canonical encoding that includes the previous digest, so a
-  later reader can detect edited, reordered or removed events.
-- Finished runs are sealed with HMAC-SHA256 (`AGENT_TRACE_SEAL_KEY`). Without a
-  key traces are still recorded, and the viewer shows `unsealed` instead of
-  `ok`.
+| 配置 | 本地开发说明 |
+| --- | --- |
+| `AVATAR2_WEB_PORT`、`APP_URL` | 默认工作台使用 `8300`，对应 `APP_URL=http://localhost:8300`。如使用 `8301`，两个值一起修改。浏览器使用与 `APP_URL` 一致的地址。 |
+| `AVATAR2_HR_WEB_URL` | 本地为 `http://localhost:8892`，供浏览器打开独立 HR 网页。 |
+| `DATABASE_PASSWORD`、`ENCRYPTION_KEY`、`ENCRYPTION_SALT` | 设置独立数据库密码和应用加密材料，保留自己的配置副本。 |
+| `AVATAR2_INTERNAL_TOKEN`、`AVATAR2_BINDING_KEY` | 使用独立随机服务令牌与有效的 Fernet 密钥。 |
+| `AGENT_TRACE_SEAL_KEY` | 设置随机密钥以启用 Trace 封存校验。 |
 
-Recording happens outside the agent loop: the chat router wraps the stream it
-already receives, and the search and department tool handlers are decorated so
-tool spans carry the operation or request identifiers they produced. A failed
-trace write never fails or replays the business request.
+```powershell
+$avatarCompose = @('-p','avatar2-source','--env-file','.env','-f','docker/docker-compose.yml','-f','docker/avatar2.compose.yaml','--profile','filesystem')
+docker compose @avatarCompose up -d --build web connector-manager filesystem-connector gateway hr
+docker compose @avatarCompose ps
+```
 
-Where to look:
+打开 [本地工作台](http://localhost:8300)。首次访问时按引导创建工作台管理员，在管理设置里配置可用的对话模型与 Embedding 模型。新增文件系统知识源，容器路径填 `/knowledge`，同步完成后先搜索“年休假”。该路径通过 Compose 挂载 [仓库演示语料](source-documents/)。法规原文见 [《职工带薪年休假条例》](https://xzfg.moj.gov.cn/front/law/detail?LawID=208) 和 [《企业职工带薪年休假实施办法》](https://www.mohrss.gov.cn/xxgk2020/gzk/gz/202112/P020211229590352867273.pdf)。
 
-- Each question in a chat has a `查看执行过程` entry; the sidebar has
-  `追踪中心` (`/traces`) listing recent runs for the signed-in user.
-- `GET /api/chat/{chatId}/runs` - run summaries for one chat (owner only),
-  including the question text, capture health and whether any tool failed.
-- `GET /api/chat/{chatId}/runs/{runId}` - events plus a recomputed
-  verification result: `ok`, `mismatch`, `truncated`, `unsealed` or `running`.
-  `?afterSeq=N` returns only newer events, for incremental polling.
-- `GET /api/chat/{chatId}/runs/{runId}/business` - read-only link from the
-  drafting turn to its leave card and latest HR status.
-- `GET /api/traces` - the caller's recent runs across chats.
+### 2. 空数据卷初始化 HR 演示
 
-The panel reports three independent facts, because they can disagree:
+在新环境中先为网关创建演示身份，再使用 HR 的一次性配对码建立服务配对。已有配对和绑定的环境可直接进入演示流程。
 
-| Fact | Values | Meaning |
-|---|---|---|
-| Turn execution | running / ended / failed / cancelled / stale | whether the answer finished; `stale` means running with no heartbeat for 2 minutes |
-| Capture health | ok / degraded / unknown | whether every observed step was stored; once degraded, later writes cannot restore it |
-| Record integrity | ok / mismatch / truncated / not_sealed / unverifiable / running | whether the stored events, the chain head and the seal still agree; `unverifiable` means sealed at write time but this verifier has no key, `not_sealed` means the record was written without a seal |
+```powershell
+docker compose @avatarCompose exec -e PY_AVATAR_DATA_DIR=/data gateway python -m avatar_service init-demo
+docker compose @avatarCompose exec -e PY_AVATAR_DATA_DIR=/data gateway python -m avatar_service add-demo-user --handle bob --name Bob
+docker compose @avatarCompose exec hr /opt/avatar-venv/bin/python -m hr_service setup-code
+docker compose @avatarCompose exec gateway python -c 'import asyncio, os; from getpass import getpass; from avatar_service.db import Store; from avatar_service.hr_bridge import HrBridge; bridge = HrBridge(); bridge.start(Store(os.environ["AVATAR2_DATA_DIR"]), lambda *_: None); print(asyncio.run(bridge.pair(getpass("HR setup code: "))))'
+```
 
-A run whose process died mid-answer keeps `status = running`; the reader uses
-the last successfully written event as a heartbeat and downgrades it to
-`stale`, so an old half-written run is never shown as still in progress.
+初始化命令会输出本次创建的本地测试凭据，请仅在本机保存。网关以单 worker 运行，HR 服务使用网关进程签发的短时调用授权。随后在 Avatar 创建工作台测试账号，由工作台管理员进入 `/admin/settings/hr-directory`，将员工账号关联到 `bob`、主管账号关联到 `admin`。两人分别登录自己的 Avatar，从账号菜单的「员工服务」完成绑定。演示 HR 数据中，Bob 的指定审批人为 `admin`。
 
-Capture-health acceptance uses an explicit fixture: set
-`AVATAR2_TRACE_FAULT_EVENT=model.started` (or another event type) on the AI
-service and the first matching event of each process is dropped. The run must
-then show `degraded` while the business result is unaffected. Leave the variable
-empty in normal operation.
+## 源码来源与许可
 
-Verification is recomputed on read by
-`web/src/lib/server/trace/digest.ts`; the writer's canonical encoding lives in
-`services/ai/tracing/canonical.py`. Both suites pin the same golden vectors, so
-the two implementations cannot drift silently:
+本仓库基于 Omni 本地源码快照 `c55816d7e36cce9d47c022382af4953e63af8625` 与 Avatar 本地源码快照 `b87c16a7532e8c80f88c268df9498f0c99992bf4`。这些快照包含取样时的本地改动。初始复制时，AI Python 文件与当时的本地源文件 SHA-256 一致。此后的 Avatar2 集成工作包括部门动作路由、工作台与 HR 身份衔接、通用动作卡以及 Trace 采集和展示。
 
-    cd services/ai && python -m unittest discover -s tests/unit -p test_tracing.py -v
-    cd web && npm run test:integ -- src/lib/server/trace/digest.test.ts
-
-Operational notes:
-
-- `AVATAR2_TRACE_ENABLED=0` disables recording without touching the chat path.
-- Traces are scoped to chat ownership. A manager who can approve a leave
-  request cannot read the requester's conversation traces.
-- Payloads use a whitelist (model, tool, durations, counts, operation and leave
-  identifiers, error codes). Leave reasons, credentials and model input are not
-  recorded.
-- A run left in `running` after a crash is reported as such; the viewer never
-  infers that a tool succeeded and never retries a side-effecting tool.
-
-
-### Acceptance scripts
-
-`scripts/trace/` contains the re-runnable checks used for this feature. They
-drive the real workbench with a test employee/manager and read the ledger
-directly for fixtures:
-
-    # real flows: plain, retrieval, two questions, draft -> approve -> business, tool failure, access control
-    node scripts/trace/acceptance.cjs
-    # switching runs, dropped poll recovery, polling stops at terminal
-    node scripts/trace/resilience.cjs
-    # tamper, truncation, missing seal key, afterSeq contract
-    node scripts/trace/integrity-fixtures.cjs
-    # first-snapshot/incremental recovery, cancellation, stale recovery
-    node scripts/trace/resilience2.cjs
-    # cursor/events/state/seal read from one snapshot (R5)
-    node scripts/trace/consistency.cjs
-    # step-level business association for two drafts in one run (R6)
-    node scripts/trace/business-drafts.cjs
-    # seal states not_sealed / running / ok / truncated in API and page (R7)
-    node scripts/trace/seal-states.cjs
-    # with AVATAR2_TRACE_FAULT_EVENT set on the AI service
-    node scripts/trace/capture-fault.cjs turn
-    node scripts/trace/capture-fault.cjs check   # after a restart, with FAULT_RUN_ID/FAULT_CHAT_ID
-
-`scripts/trace/fixtures.py` is piped into the AI container
-(`docker exec -i avatar2-source-ai-1 python - <subcommand>`) to create
-controlled runs: two real drafts in one run with a decoy operation id, a
-running run, a stale run, a record written without a seal, a malformed-frame
-run, and a leak-marker sanitisation run. These are test records and are labelled
-as such by their fixture model name.
-
-Note: the HR service de-duplicates by requester + dates + leave type + reason,
-so acceptance runs must use dates that were not used before; otherwise HR
-returns the existing request and the new operation is linked to it.
-
-They need Node with Playwright (`NODE_PATH` to a directory containing
-`playwright-core`) and these variables: `BASE`, `MODEL_ID`,
-`BOB_EMAIL/PASSWORD`, `ALICE_EMAIL/PASSWORD`, `ADMIN_EMAIL/PASSWORD`. The
-scripts never print or store credentials, and the damaged runs they create are
-clearly labelled test records.
-
-## Independent HR pages and single sign-on
-
-Employees and assigned supervisors open the HR service's own pages without a
-second password:
-
-- Avatar checks the signed-in user and their HR binding, then issues a ticket
-  valid for 60 seconds and one redemption (`POST /internal/hr/web-ticket`).
-- The workbench opens the HR page with a POST form: the ticket travels in the
-  request body and is exchanged at `POST /web/ticket`. It never enters a URL, a
-  referrer, a log line or a trace; the exchange and pages are `no-store`.
-- The HR service redeems it atomically, sets a personal `hr_personal` cookie
-  session, and redirects (303) to `/web/me` or `/web/approvals`.
-- Bindings carry a generation that changes on bind/renew/unlink. Tickets and
-  sessions record it; exchange and every restricted read/write re-check it, so
-  rebinding (even to the same employee) or expiry blocks an already-open page.
-- Every page and every approval re-validates the Avatar binding
-  (`/internal/hr/web-session`), so unbinding or expiry blocks an open page.
-- The admin console keeps its own cookie and is not used for personal pages.
-- The workbench leave card has "在 HR 中查看"; the account menu holds
-  "员工服务" (binding/renewal) and "我的待审批（HR）" (supervisor entry). The
-  global sidebar entries for employee service and approvals were removed.
-
-Set `AVATAR2_HR_WEB_URL` (default `http://localhost:8892`) and publish the HR
-service on that port. Tickets and business credentials are never written to the
-trace, logs or the final URL.
-
-### Card deep links and department descriptors
-
-- From a card, Avatar resolves the submitted request server-side and issues a
-  ticket whose controlled target is `request:<leaveId>`. The HR service checks
-  that the request belongs to the personal session before rendering it; pending
-  drafts keep the explicit "尚未提交" state.
-- `/api/action/{chat}/{operation}` looks up the trusted operation record
-  (department, action, owner, chat), then calls that department's describe
-  adapter. HR keeps its own summary/labels adapter; legacy `lop_` operations
-  still resolve through the HR adapter with the same ownership checks.
-- A new `sample` plugin (env `AVATAR2_ENABLE_SAMPLE_PLUGIN`) demonstrates a
-  brand-new department: one plugin file plus one registration line. Keep it
-  disabled in normal operation.
+仓库保留上游 [Apache License 2.0](LICENSE) 与源文件中的归属声明。外部评测数据、模型和其他依赖遵循各自的适用许可。

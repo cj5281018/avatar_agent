@@ -7,6 +7,7 @@ embedding provider.
 
 import asyncio
 import logging
+import os
 import time
 
 import ulid
@@ -37,6 +38,12 @@ PROGRESS_LOG_INTERVAL = 30  # Seconds between progress log lines
 MAX_EMBEDDING_RETRIES = 5
 LEASE_SECONDS = 900
 HEARTBEAT_INTERVAL = 60
+
+# Bank-style evaluation corpora need short fixed windows so the searcher can
+# expand a matched clause with neighbouring chunks. The product default stays
+# sentence/512; an isolated deployment opts in through the environment.
+EMBEDDING_CHUNK_SIZE = int(os.getenv("EMBEDDING_CHUNK_SIZE", "512"))
+EMBEDDING_CHUNKING_MODE = os.getenv("EMBEDDING_CHUNKING_MODE", "sentence")
 
 
 class LeaseLost(RuntimeError):
@@ -355,8 +362,8 @@ class EmbeddingBatchProcessor:
                     chunk_results = await self.embedding_provider.generate_embeddings(
                         text=piece,
                         task="passage",
-                        chunk_size=512,
-                        chunking_mode="sentence",
+                        chunk_size=EMBEDDING_CHUNK_SIZE,
+                        chunking_mode=EMBEDDING_CHUNKING_MODE,
                     )
                     elapsed_ms = (time.monotonic() - t0) * 1000
                     n_chunks = len(chunk_results) if chunk_results else 0

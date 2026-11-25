@@ -193,14 +193,23 @@
 </script>
 
 {#if useStreamingRenderer}
-    <div bind:this={streamingContainerRef}></div>
+    <div class="markdown-message" bind:this={streamingContainerRef}></div>
 {:else}
     <!-- Marked output preserves the existing renderer's raw HTML behavior. -->
     <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-    <div bind:this={staticContainerRef}>{@html renderedHtml}</div>
+    <div class="markdown-message" bind:this={staticContainerRef}>{@html renderedHtml}</div>
 {/if}
 
 <style>
+    .markdown-message :global(pre) {
+        background-color: var(--muted);
+        color: var(--foreground);
+    }
+
+    .markdown-message :global(pre code) {
+        color: inherit;
+    }
+
     :global(.omni-streaming-chunk) {
         animation: omni-streaming-fade-in 220ms ease-out both;
     }

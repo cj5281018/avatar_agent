@@ -207,7 +207,7 @@
                 src={themeStore.current.omniLogoDark}
                 alt="Avatar logo"
                 class="omni-logo-dark h-8 w-8 rounded-lg" />
-            <h1 class="text-foreground text-3xl font-bold">omni</h1>
+            <h1 class="text-foreground text-3xl font-bold">{themeStore.current.omniName}</h1>
         </div>
 
         {#snippet uploadChips()}

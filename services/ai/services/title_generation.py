@@ -7,15 +7,15 @@ logger = logging.getLogger(__name__)
 
 TITLE_GENERATION_SYSTEM_PROMPT = """You are a helpful assistant that generates concise, descriptive titles for chat conversations.
 Based on the first message(s) of a conversation, generate a title that is:
-- 3-7 words long
+- Concise, using 3-7 words for English or a short natural phrase for Chinese
 - Descriptive and specific
-- Written in title case
+- Written in the same language as the first user message. For Chinese input, output a Chinese title, not an English translation.
 - Does not include quotes or special formatting
 
 Just respond with the title text, nothing else."""
 
 TITLE_GENERATION_EMPTY_RESPONSE_PROMPT = (
-    "You did not provide a title. Please provide a concise 3-6 word chat title only, "
+    "You did not provide a title. Please provide only a concise title in the language of the first user message, "
     "without quotes or punctuation."
 )
 TITLE_GENERATION_EMPTY_RETRIES = 2

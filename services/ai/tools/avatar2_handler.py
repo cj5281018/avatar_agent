@@ -110,6 +110,11 @@ class Avatar2ToolHandler:
                     pass
                 return self.error(message, code=code)
             data = response.json()
+            if isinstance(data, dict) and data.get("type") == "leave_preview" and data.get("operationId"):
+                data["responseGuidance"] = (
+                    "工作台已渲染可操作的请假确认卡。只简短提示用户核对卡片并手动确认。"
+                    "不要重复草稿字段，不要绘制表格、文本框或代码块，不要声称已经提交。"
+                )
             return ToolResult(content=[{"type": "text", "text": json.dumps(data, ensure_ascii=False)}])
         except (httpx.HTTPError, ValueError):
             return self.error("部门工具暂时不可用")
