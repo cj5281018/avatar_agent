@@ -34,13 +34,18 @@ export const POST: RequestHandler = async ({ locals, request, url }) => {
     const ticket = (await response.json()) as { ticket?: string }
     if (!ticket.ticket) error(502, '票据签发失败')
 
+    // The ticket is handed over in a POST body; it never becomes a URL.
     return json(
         {
-            url:
-                env.AVATAR2_HR_WEB_URL.replace(/\/$/, '') +
-                '/web/ticket?ticket=' +
-                encodeURIComponent(ticket.ticket),
+            action: env.AVATAR2_HR_WEB_URL.replace(/\/$/, '') + '/web/ticket',
+            ticket: ticket.ticket,
+            target,
         },
-        { headers: { 'cache-control': 'no-store' } },
+        {
+            headers: {
+                'cache-control': 'no-store',
+                'referrer-policy': 'no-referrer',
+            },
+        },
     )
 }

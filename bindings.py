@@ -2,7 +2,7 @@
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 
-from secrets import token_urlsafe
+from secrets import token_hex, token_urlsafe
 from avatar_service.db import digest, now
 
 
@@ -21,6 +21,41 @@ class EmployeeBindings:
                 workbench_user TEXT PRIMARY KEY,
                 employee_id TEXT NOT NULL UNIQUE REFERENCES users(id)
             )""")
+
+            # A binding generation. Any bind/renew/unlink changes it, so tickets
+            # and personal sessions issued before the change stop working - even
+            # when the same employee is bound again afterwards.
+            db.execute("""CREATE TABLE IF NOT EXISTS binding_versions(
+                workbench_user TEXT PRIMARY KEY,
+                version TEXT NOT NULL
+            )""")
+
+    @staticmethod
+    def _bump(db, workbench_user):
+        version = token_hex(8)
+        db.execute(
+            "INSERT INTO binding_versions VALUES (?,?) "
+            "ON CONFLICT(workbench_user) DO UPDATE SET version=excluded.version",
+            (workbench_user, version),
+        )
+        return version
+
+    def current_version(self, workbench_user):
+        with self.store.open() as db:
+            row = db.execute(
+                "SELECT version FROM binding_versions WHERE workbench_user=?",
+                (workbench_user,),
+            ).fetchone()
+            if row:
+                return row["version"]
+            db.execute("BEGIN IMMEDIATE")
+            return self._bump(db, workbench_user)
+
+    def check_version(self, workbench_user, version):
+        current = self.current_version(workbench_user)
+        if not isinstance(version, str) or version != current:
+            raise HTTPException(409, "绑定已变更，请从 Avatar 重新进入")
+        return True
 
     def assign(self, workbench_user, handle):
         with self.store.open() as db:
@@ -54,6 +89,7 @@ class EmployeeBindings:
                 (person["id"], workbench_user, workbench_user, person["id"])).fetchone():
                 raise HTTPException(409, "员工身份绑定冲突，请联系管理员")
             self._remove_session(db, workbench_user)
+            self._bump(db, workbench_user)
             token = token_urlsafe(32)
             expiry = now() + 7200000
             db.execute("INSERT INTO logins VALUES(?,?,?)", (digest(token), person["id"], expiry))
@@ -86,6 +122,7 @@ class EmployeeBindings:
             ).fetchone()
             if conflict:
                 raise HTTPException(409, "该工作台账号或员工身份已绑定")
+            self._bump(db, workbench_user)
             db.execute(
                 """INSERT INTO workbench_bindings VALUES (?, ?, ?)
                    ON CONFLICT(workbench_user) DO UPDATE SET credential=excluded.credential""",
@@ -119,3 +156,4 @@ class EmployeeBindings:
         with self.store.open() as db:
             db.execute("BEGIN IMMEDIATE")
             self._remove_session(db, workbench_user)
+            self._bump(db, workbench_user)

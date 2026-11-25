@@ -57,6 +57,8 @@ def _gateway(path: str, payload: dict) -> dict:
         raise ServiceError("票据已失效或已使用", 410)
     if response.status_code == 403:
         raise ServiceError("员工绑定不可用，请回到工作台续期", 403)
+    if response.status_code == 409:
+        raise ServiceError("绑定已变更，请从 Avatar 重新进入", 409)
     if not response.is_success:
         raise ServiceError("Avatar 拒绝了请求", 502)
     return response.json()
@@ -99,7 +101,10 @@ def _identity(store, handle: str) -> dict:
 
 
 def _revalidate(record: dict) -> None:
-    _gateway("/internal/hr/web-session", {"user_id": record["user_id"]})
+    _gateway(
+        "/internal/hr/web-session",
+        {"user_id": record["user_id"], "version": record.get("bindingVersion")},
+    )
 
 
 def _page(title: str, body: str, record: dict | None = None, message: str = "") -> HTMLResponse:
@@ -111,7 +116,8 @@ def _page(title: str, body: str, record: dict | None = None, message: str = "") 
         )
     message_html = f'<div class="msg">{html.escape(message)}</div>' if message else ""
     return HTMLResponse(
-        f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+        headers={"cache-control": "no-store", "referrer-policy": "no-referrer"},
+        content=f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="hr-csrf" content="{html.escape(record["csrf"]) if record else ""}">
 <title>{html.escape(title)} · HR</title>
@@ -130,14 +136,18 @@ button{{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:8px 14p
     )
 
 
-@router.get("/web/ticket")
-def exchange_ticket(request: Request, ticket: str = ""):
+@router.post("/web/ticket")
+async def exchange_ticket(request: Request):
+    # POST only: the ticket travels in the body, never in a URL or referrer.
+    raw = (await request.body()).decode("utf-8", "ignore")
+    ticket = parse_qs(raw).get("ticket", [""])[0]
     record = _gateway("/internal/hr/ticket/consume", {"ticket": ticket})
     token = secrets.token_urlsafe(32)
     entry = {
         "user_id": record["user_id"],
         "handle": record["handle"],
         "displayName": record["displayName"],
+        "bindingVersion": record.get("bindingVersion"),
         "csrf": secrets.token_urlsafe(24),
         "expiresAt": _now() + TTL_MS,
     }
@@ -145,6 +155,8 @@ def exchange_ticket(request: Request, ticket: str = ""):
         set_setting(db, _session_key(token), json.dumps(entry))
     target = "/web/approvals" if record.get("target") == "approvals" else "/web/me"
     response = RedirectResponse(target, status_code=303)
+    response.headers["cache-control"] = "no-store"
+    response.headers["referrer-policy"] = "no-referrer"
     response.set_cookie(
         COOKIE,
         token,

@@ -71,6 +71,26 @@ async def hr_list_my_requests(ctx: ActionContext, arguments: dict) -> dict:
     return data["data"]
 
 
+async def testkit_write(ctx: ActionContext, arguments: dict) -> dict:
+    """A write action that must never run through an ordinary tool entry."""
+    with ctx.store.open() as db:
+        db.execute("CREATE TABLE IF NOT EXISTS testkit_writes(id INTEGER PRIMARY KEY)")
+        db.execute("INSERT INTO testkit_writes DEFAULT VALUES")
+    return {"type": "testkit_write", "written": True}
+
+
+async def testkit_fail(ctx: ActionContext, arguments: dict) -> dict:
+    """A registered read action that always fails, for isolation tests."""
+    raise ActionError("tool_error", "测试插件执行失败")
+
+
+async def testkit_counter(ctx: ActionContext, arguments: dict) -> dict:
+    with ctx.store.open() as db:
+        db.execute("CREATE TABLE IF NOT EXISTS testkit_writes(id INTEGER PRIMARY KEY)")
+        count = db.execute("SELECT count(*) FROM testkit_writes").fetchone()[0]
+    return {"type": "testkit_counter", "writes": count}
+
+
 async def testkit_preview(ctx: ActionContext, arguments: dict) -> dict:
     # Deliberately reuses the action id "preview_leave" under another
     # department: routing is by tool name, not by action id alone.
@@ -131,6 +151,30 @@ TEST_PLUGIN = DepartmentPlugin(
             policy="read",
         ),
         PluginAction(
+            id="write",
+            tool="testkit_write",
+            description="仅用于策略测试的写动作，普通工具入口必须拒绝",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler=testkit_write,
+            policy="write",
+        ),
+        PluginAction(
+            id="fail",
+            tool="testkit_fail",
+            description="仅用于故障隔离测试的只读动作，执行时必定失败",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler=testkit_fail,
+            policy="read",
+        ),
+        PluginAction(
+            id="counter",
+            tool="testkit_counter",
+            description="读取测试写动作的调用次数",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler=testkit_counter,
+            policy="read",
+        ),
+        PluginAction(
             id="echo",
             tool="testkit_echo",
             description="仅用于接入测试的只读回显，不返回任何业务数据",
@@ -156,14 +200,23 @@ def _catalog():
 CATALOG = _catalog()
 
 
-async def execute_action(ctx: ActionContext, tool: str, arguments: object) -> dict:
-    """Shared dispatch for every entry point (MCP and internal tools)."""
+async def execute_action(
+    ctx: ActionContext, tool: str, arguments: object, *, surface: str = "tool"
+) -> dict:
+    """Shared dispatch for every entry point (MCP and internal tools).
+
+    Ordinary tool entries execute only ``read`` and ``draft`` actions. A
+    ``write`` action (or an unknown policy, defensively) is refused before the
+    handler runs; official writes stay on their human-triggered paths.
+    """
     route = CATALOG.route(tool) if isinstance(tool, str) else None
     if route is None:
         raise ActionError("unknown_tool", "未知工具或参数不正确")
     if not isinstance(arguments, dict):
         raise ActionError("invalid_arguments", "参数格式不正确")
     _plugin, action = route
+    if surface == "tool" and action.policy not in ("read", "draft"):
+        raise ActionError("approval_required", "该动作需要人工确认后执行", 403)
     try:
         return await action.handler(ctx, arguments)
     except ActionError:
@@ -197,9 +250,14 @@ def create_app(directory=None):
                     user_id TEXT NOT NULL,
                     target TEXT NOT NULL,
                     expires_at INTEGER NOT NULL,
-                    used_at INTEGER
+                    used_at INTEGER,
+                    binding_version TEXT
                 )"""
             )
+        with app.state.store.open() as db:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(web_tickets)")}
+            if "binding_version" not in columns:
+                db.execute("ALTER TABLE web_tickets ADD COLUMN binding_version TEXT")
         bridge.start(app.state.store, lambda owner, event: None)
         encryption_key = os.environ.get('AVATAR2_BINDING_KEY')
         app.state.bindings = EmployeeBindings(app.state.store, encryption_key.encode()) if encryption_key else None
@@ -302,7 +360,10 @@ def create_app(directory=None):
     install_actions(app, bridge, CATALOG, execute_action, CATALOG.protocol_tools())
 
     @app.post("/internal/hr/web-ticket")
-    def web_ticket(body: dict, authorization: str = Header(default="")):
+    def web_ticket(
+        response: Response, body: dict, authorization: str = Header(default="")
+    ):
+        response.headers["cache-control"] = "no-store"
         if not _service_allowed(authorization):
             raise HTTPException(401, "服务凭据无效")
         user_id = body.get("user_id")
@@ -314,21 +375,29 @@ def create_app(directory=None):
         bindings = request_bindings = app.state.bindings
         if bindings is None:
             raise HTTPException(503, "员工绑定未配置")
-        try:
-            bindings.resolve(user_id)
-        except HTTPException:
-            raise
+        bindings.resolve(user_id)
+        version = bindings.current_version(user_id)
         ticket = secrets.token_urlsafe(32)
         expires = int(time.time() * 1000) + 60_000
         with app.state.store.open() as db:
             db.execute(
-                "INSERT INTO web_tickets(ticket_hash,user_id,target,expires_at) VALUES (?,?,?,?)",
-                (hashlib.sha256(ticket.encode()).hexdigest(), user_id, target, expires),
+                "INSERT INTO web_tickets(ticket_hash,user_id,target,expires_at,binding_version) "
+                "VALUES (?,?,?,?,?)",
+                (
+                    hashlib.sha256(ticket.encode()).hexdigest(),
+                    user_id,
+                    target,
+                    expires,
+                    version,
+                ),
             )
         return {"ticket": ticket, "expiresAt": expires, "target": target}
 
     @app.post("/internal/hr/ticket/consume")
-    def consume_ticket(body: dict, authorization: str = Header(default="")):
+    def consume_ticket(
+        response: Response, body: dict, authorization: str = Header(default="")
+    ):
+        response.headers["cache-control"] = "no-store"
         if not _service_allowed(authorization):
             raise HTTPException(401, "服务凭据无效")
         ticket = body.get("ticket")
@@ -344,18 +413,21 @@ def create_app(directory=None):
                 (stamp, digest_value, stamp),
             ).rowcount
             row = db.execute(
-                "SELECT user_id,target FROM web_tickets WHERE ticket_hash=?", (digest_value,)
+                "SELECT user_id,target,binding_version FROM web_tickets WHERE ticket_hash=?",
+                (digest_value,)
             ).fetchone()
         if changed != 1 or row is None:
             raise HTTPException(410, "票据已失效或已使用")
         if app.state.bindings is None:
             raise HTTPException(503, "员工绑定未配置")
         employee, _key = app.state.bindings.resolve(row["user_id"])
+        app.state.bindings.check_version(row["user_id"], row["binding_version"])
         return {
             "user_id": row["user_id"],
             "handle": employee["handle"],
             "displayName": employee["name"],
             "target": row["target"],
+            "bindingVersion": row["binding_version"],
         }
 
     @app.post("/internal/hr/web-session")
@@ -364,12 +436,19 @@ def create_app(directory=None):
         if not _service_allowed(authorization):
             raise HTTPException(401, "服务凭据无效")
         user_id = body.get("user_id")
+        version = body.get("version")
         if not isinstance(user_id, str):
             raise HTTPException(400, "用户标识无效")
         if app.state.bindings is None:
             raise HTTPException(503, "员工绑定未配置")
         employee, _key = app.state.bindings.resolve(user_id)
-        return {"user_id": user_id, "handle": employee["handle"], "displayName": employee["name"]}
+        app.state.bindings.check_version(user_id, version)
+        return {
+            "user_id": user_id,
+            "handle": employee["handle"],
+            "displayName": employee["name"],
+            "bindingVersion": version,
+        }
 
     @app.get("/internal/catalog")
     def catalog(authorization: str = Header(default="")):
