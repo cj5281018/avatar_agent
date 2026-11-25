@@ -13,6 +13,7 @@ from avatar_contract import schema_error
 
 from . import lifecycle, recruitment, registry
 from .admin import routes as admin_routes
+from .personal import router as personal_router
 from .db import ServiceError, Store, setting
 from .leaves import execute
 from .outbox import run
@@ -159,6 +160,7 @@ def create_app(directory=None, origin=None, invoke_base=None, secondary=None):
             response["requestId"] = body["requestId"]
         return response
 
+    application.include_router(personal_router)
     application.include_router(admin_routes(origin))
     if secondary is not None:
         application.mount("/avatar8790", secondary)

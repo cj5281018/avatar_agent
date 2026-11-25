@@ -10,6 +10,7 @@ services:
     environment:
       AVATAR2_GATEWAY_URL: http://gateway:8790
       AVATAR2_INTERNAL_TOKEN: ${AVATAR2_INTERNAL_TOKEN:-}
+      AVATAR2_HR_WEB_URL: ${AVATAR2_HR_WEB_URL:-http://localhost:8892}
       AGENT_TRACE_SEAL_KEY: ${AGENT_TRACE_SEAL_KEY:-}
       AVATAR2_TRACE_ENABLED: ${AVATAR2_TRACE_ENABLED:-1}
     ports:
@@ -64,6 +65,9 @@ services:
     environment:
       HR_AVATAR_BASE_URL: http://gateway:8790
       HR_PUBLIC_URL: http://hr:8891
+      AVATAR2_INTERNAL_TOKEN: ${AVATAR2_INTERNAL_TOKEN:-}
+    ports:
+      - "127.0.0.1:8892:8891"
     volumes:
       - hr_data:/var/lib/hr
     networks: [omni-network]

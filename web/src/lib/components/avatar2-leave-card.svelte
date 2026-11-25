@@ -24,6 +24,25 @@
         }
     }
 
+    async function openHr() {
+        busy = true
+        message = ''
+        try {
+            const response = await fetch('/api/hr-entry', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ target: 'me' }),
+            })
+            const data = await response.json()
+            if (!response.ok) throw new Error(data.message ?? '暂时无法打开 HR 页面')
+            window.open(data.url, '_blank', 'noopener')
+        } catch (error) {
+            message = error instanceof Error ? error.message : '暂时无法打开 HR 页面'
+        } finally {
+            busy = false
+        }
+    }
+
     onMount(() => { void update('status') })
 </script>
 
@@ -34,7 +53,10 @@
         <p>{item.input.reason}</p>
         {#if item.leaveId}
             <p>HR 单号 {item.leaveId}{item.hrStatus ? " · " + item.hrStatus : ""}</p>
-            <button class="mt-2 rounded border px-3 py-1" onclick={() => update('status')} disabled={busy}>回查同一申请</button>
+            <div class="mt-2 flex gap-2">
+                <button class="rounded border px-3 py-1" onclick={() => update('status')} disabled={busy}>回查同一申请</button>
+                <button class="rounded border px-3 py-1" onclick={openHr} disabled={busy}>在 HR 中查看</button>
+            </div>
         {:else if item.status === 'pending' || item.status === 'confirmed'}
             <button class="mt-2 rounded border px-3 py-1" onclick={() => update('confirm')} disabled={busy}>确认提交</button>
         {:else}

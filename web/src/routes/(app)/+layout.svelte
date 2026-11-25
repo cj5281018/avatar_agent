@@ -345,11 +345,11 @@
                 <a href="/" class="flex items-center gap-1.5 group-data-[collapsible=icon]:hidden">
                     <img
                         src={themeStore.current.omniLogoLight}
-                        alt="Omni logo"
+                        alt="Avatar logo"
                         class="omni-logo-light ml-1 h-5 w-5 rounded-sm" />
                     <img
                         src={themeStore.current.omniLogoDark}
-                        alt="Omni logo"
+                        alt="Avatar logo"
                         class="omni-logo-dark ml-1 h-5 w-5 rounded-sm" />
                     <span class="text-xl font-bold group-data-[collapsible=icon]:hidden"
                         >{themeStore.current.omniName}</span>
@@ -387,10 +387,6 @@
             <Button href="/employee-binding" variant="ghost" aria-label="员工服务"
                 class="mb-2 flex w-full justify-start has-[>svg]:px-2">
                 <BookOpen /><span class="group-data-[collapsible=icon]:hidden">员工服务</span>
-            </Button>
-            <Button href="/hr-approvals" variant="ghost" aria-label="请假审批"
-                class="mb-2 flex w-full justify-start has-[>svg]:px-2">
-                <BookOpen /><span class="group-data-[collapsible=icon]:hidden">请假审批</span>
             </Button>
             <Button
                 href="/skills"
