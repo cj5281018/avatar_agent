@@ -24,6 +24,7 @@ from tracing.canonical import (
     event_digest,
     seal_digest,
 )
+from tracing.tool_refs import _extract_refs
 from tracing import tee
 from tracing.context import ActiveRun, bind_run, reset_run
 from tracing.recorder import capture_failure
@@ -331,6 +332,41 @@ class TapTest(unittest.IsolatedAsyncioTestCase):
         await capture_failure(self.run, "inspection_error")
         self.assertEqual(self.run.dropped, 2)
         self.assertEqual(self.run.capture_error, "malformed_message")
+
+
+class ToolPayloadTest(unittest.TestCase):
+    def test_failed_result_keeps_only_safe_fields(self):
+        refs = _extract_refs(
+            [
+                {"type": "search_result", "title": "LEAK_TITLE"},
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "errorCode": "invalid_arguments",
+                            "message": "LEAK_MARKER",
+                            "operationId": "lop_LEAK123",
+                            "leaveId": "leave_LEAK123",
+                        }
+                    ),
+                },
+            ],
+            is_error=True,
+        )
+        self.assertEqual(refs, {"reasonCode": "invalid_arguments", "reason": "工具参数无效"})
+
+    def test_success_ids_are_format_checked(self):
+        refs = _extract_refs(
+            [
+                {"type": "text", "text": json.dumps({"operationId": "lop_ok-1", "leaveId": "bad id"})},
+                {"type": "search_result", "title": "A"},
+            ],
+            is_error=False,
+        )
+        self.assertEqual(refs["operationId"], "lop_ok-1")
+        self.assertNotIn("leaveId", refs)
+        self.assertEqual(refs["hits"], 1)
+        self.assertEqual(refs["titles"], ["A"])
 
 
 class WriterTest(unittest.IsolatedAsyncioTestCase):

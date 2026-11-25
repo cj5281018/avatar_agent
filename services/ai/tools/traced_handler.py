@@ -8,7 +8,6 @@ contain a leave reason) and never credentials.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -19,97 +18,7 @@ from tracing.context import active_run
 from tracing.recorder import emit
 from tracing.writer import new_id
 
-RETRIEVAL_TOOLS = {"search"}
-
-
-MAX_TITLES = 5
-
-# Stable failure categories. The tool's raw error text is never persisted: it
-# can echo upstream bodies, request content or credentials. Matching only reads
-# the text to pick a category.
-SAFE_REASON = {
-    "invalid_arguments": "工具参数无效",
-    "binding_required": "需要先绑定或续期员工身份",
-    "upstream_unavailable": "部门工具暂时不可用",
-    "timeout": "工具调用超时",
-    "tool_error": "工具执行失败",
-}
-
-
-def _classify_failure(text: str) -> str:
-    lowered = text.lower()
-    if "未知工具" in text or "参数" in text or "invalid" in lowered or "validation" in lowered:
-        return "invalid_arguments"
-    if "绑定" in text or "binding" in lowered:
-        return "binding_required"
-    if "超时" in text or "timeout" in lowered:
-        return "timeout"
-    if "不可用" in text or "unavailable" in lowered or "502" in text or "503" in text:
-        return "upstream_unavailable"
-    return "tool_error"
-
-
-def _extract_refs(content: list[Any], *, is_error: bool) -> dict[str, Any]:
-    """Pull stable, user-safe identifiers out of a tool result.
-
-    Only identifiers, counts, result titles and the tool's own error text are
-    kept; the tool input (which may contain a leave reason) and the raw result
-    payload are not recorded.
-    """
-    refs: dict[str, Any] = {}
-    hits = 0
-    titles: list[str] = []
-    failure_text = ""
-    for block in content or []:
-        if not isinstance(block, dict):
-            continue
-        block_type = block.get("type")
-        if block_type == "search_result":
-            hits += 1
-            title = block.get("title")
-            if isinstance(title, str) and title and len(titles) < MAX_TITLES:
-                titles.append(title[:120])
-            continue
-        if block_type != "text":
-            continue
-        text = block.get("text")
-        if is_error and not failure_text and isinstance(text, str):
-            failure_text = text
-        if not isinstance(text, str) or not text.startswith("{"):
-            continue
-        try:
-            parsed = json.loads(text)
-        except ValueError:
-            continue
-        if not isinstance(parsed, dict):
-            continue
-        for key, target in (("operationId", "operationId"), ("leaveId", "leaveId")):
-            value = parsed.get(key)
-            if isinstance(value, str) and len(value) <= 120:
-                refs[target] = value
-        if parsed.get("type") == "leave_preview":
-            refs.setdefault("kind", "leave_preview")
-    if hits:
-        refs["hits"] = hits
-    if titles:
-        refs["titles"] = titles
-    if is_error:
-        # A structured error code from the gateway is authoritative and safe;
-        # the free-form text is only matched to pick a category and is never
-        # stored.
-        code = ""
-        if failure_text.startswith("{"):
-            try:
-                parsed = json.loads(failure_text)
-                if isinstance(parsed, dict) and isinstance(parsed.get("errorCode"), str):
-                    code = parsed["errorCode"][:40]
-            except ValueError:
-                code = ""
-        if code not in SAFE_REASON:
-            code = _classify_failure(failure_text)
-        refs["reasonCode"] = code
-        refs["reason"] = SAFE_REASON[code]
-    return refs
+from tracing.tool_refs import RETRIEVAL_TOOLS, SAFE_REASON, _classify_failure, _extract_refs
 
 
 class TracedToolHandler:
