@@ -181,13 +181,20 @@ second password:
 
 - Avatar checks the signed-in user and their HR binding, then issues a ticket
   valid for 60 seconds and one redemption (`POST /internal/hr/web-ticket`).
-- The HR service redeems it atomically (`/web/ticket`), sets a personal
-  `hr_personal` cookie session, and opens `/web/me` or `/web/approvals`.
+- The workbench opens the HR page with a POST form: the ticket travels in the
+  request body and is exchanged at `POST /web/ticket`. It never enters a URL, a
+  referrer, a log line or a trace; the exchange and pages are `no-store`.
+- The HR service redeems it atomically, sets a personal `hr_personal` cookie
+  session, and redirects (303) to `/web/me` or `/web/approvals`.
+- Bindings carry a generation that changes on bind/renew/unlink. Tickets and
+  sessions record it; exchange and every restricted read/write re-check it, so
+  rebinding (even to the same employee) or expiry blocks an already-open page.
 - Every page and every approval re-validates the Avatar binding
   (`/internal/hr/web-session`), so unbinding or expiry blocks an open page.
 - The admin console keeps its own cookie and is not used for personal pages.
-- The workbench leave card has "在 HR 中查看"; the 员工服务 page has
-  "我的待审批（HR）". The global "请假审批" menu entry was removed.
+- The workbench leave card has "在 HR 中查看"; the account menu holds
+  "员工服务" (binding/renewal) and "我的待审批（HR）" (supervisor entry). The
+  global sidebar entries for employee service and approvals were removed.
 
 Set `AVATAR2_HR_WEB_URL` (default `http://localhost:8892`) and publish the HR
 service on that port. Tickets and business credentials are never written to the

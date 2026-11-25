@@ -46,6 +46,14 @@ const base = process.env.BASE || 'http://localhost:8301'
         const homeText = await appPage.locator('body').innerText()
         assert(!homeText.includes('Omni'), 'home still shows Omni')
         assert(homeText.includes('Avatar'), 'home brand missing')
+        const traces = await (await appPage.request.get(base + '/api/traces')).json()
+        const withChat = traces.runs.find((run) => run.userMessageId)
+        if (withChat) {
+            await appPage.goto(`${base}/chat/${withChat.chatId}`)
+            await appPage.waitForTimeout(800)
+            assert.match(await appPage.title(), /Avatar/, 'chat tab title')
+            assert(!(await appPage.locator('body').innerText()).includes('Omni'), 'chat shows Omni')
+        }
         await appContext.close()
 
         const adminContext = await browser.newContext()
